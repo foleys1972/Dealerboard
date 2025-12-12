@@ -1,0 +1,132 @@
+{
+  "1761507490677htj038eob": {
+    "_id": "1761507490677htj038eob",
+    "id": "group_1761507490677_zzzo2xdcx",
+    "name": "Test Group",
+    "description": "Test group creation",
+    "type": "trading",
+    "isPublic": true,
+    "maxParticipants": 10,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T19:38:10.677Z",
+    "updatedAt": "2025-10-26T19:38:10.677Z"
+  },
+  "1761507521649p9qnr12dh": {
+    "_id": "1761507521649p9qnr12dh",
+    "id": "group_1761507521648_m2at9e904",
+    "name": "Test Group",
+    "description": "Test",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": true,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T19:38:41.649Z",
+    "updatedAt": "2025-10-26T19:38:41.649Z"
+  },
+  "17615075759895nmv31e00": {
+    "_id": "17615075759895nmv31e00",
+    "id": "group_1761507575989_amjggbzp6",
+    "name": "Test",
+    "description": "Test",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": true,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T19:39:35.990Z",
+    "updatedAt": "2025-10-26T19:39:35.990Z"
+  },
+  "17615076487516nf1w2tek": {
+    "_id": "17615076487516nf1w2tek",
+    "id": "group_1761507648751_hfon0ytml",
+    "name": "Test",
+    "description": "Test",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T19:40:48.751Z",
+    "updatedAt": "2025-10-26T19:40:48.751Z"
+  },
+  "17615082331323rmxsvsx7": {
+    "_id": "17615082331323rmxsvsx7",
+    "id": "group_1761508233132_fvkw8g6gn",
+    "name": "Test Group 2",
+    "description": "Test group persistence",
+    "type": "trading",
+    "isPublic": true,
+    "maxParticipants": 10,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T19:50:33.132Z",
+    "updatedAt": "2025-10-26T19:50:33.132Z"
+  }
+}

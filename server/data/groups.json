@@ -1,0 +1,416 @@
+{
+  "1761508516639hdvpydqld": {
+    "_id": "1761508516639hdvpydqld",
+    "id": "group_1761508516639_afmsvbmfj",
+    "name": "Test Group 3",
+    "description": "Test group persistence after fix",
+    "type": "trading",
+    "isPublic": true,
+    "maxParticipants": 10,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001",
+      "user-1761508835098"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T19:55:16.639Z",
+    "updatedAt": "2025-10-27T14:05:30.056Z"
+  },
+  "1761508986936hj1mz6s6y": {
+    "_id": "1761508986936hj1mz6s6y",
+    "id": "group_1761508986935_mobhr5olf",
+    "name": "Test",
+    "description": "test",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": true,
+    "createdBy": "admin-001",
+    "participants": [],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T20:03:06.936Z",
+    "updatedAt": "2025-10-27T10:43:28.828Z"
+  },
+  "1761509280720e7juu89hj": {
+    "_id": "1761509280720e7juu89hj",
+    "id": "group_1761509280719_zmmqt2vi6",
+    "name": "test",
+    "description": "Test",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T20:08:00.720Z",
+    "updatedAt": "2025-10-27T10:51:11.016Z"
+  },
+  "17615095234605iekibmv6": {
+    "_id": "17615095234605iekibmv6",
+    "id": "group_1761509523458_v3w16lq2f",
+    "name": "Test",
+    "description": "Test",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T20:12:03.460Z",
+    "updatedAt": "2025-10-27T11:00:18.276Z"
+  },
+  "17615095522211xygg6gwy": {
+    "_id": "17615095522211xygg6gwy",
+    "id": "group_1761509552221_u0mczsezj",
+    "name": "Test Group",
+    "description": "Test Description",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001",
+      "user-1761508903435"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T20:12:32.221Z",
+    "updatedAt": "2025-10-27T20:49:59.748Z"
+  },
+  "17615095805100x2doj0h9": {
+    "_id": "17615095805100x2doj0h9",
+    "id": "group_1761509580510_w75oezwhh",
+    "name": "Test",
+    "description": "",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001",
+      "user-1761508903435"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T20:13:00.510Z",
+    "updatedAt": "2025-10-28T10:46:13.817Z"
+  },
+  "1761509596242nh79k3nv9": {
+    "_id": "1761509596242nh79k3nv9",
+    "id": "group_1761509596242_9e7ylyzf4",
+    "name": "Test",
+    "description": "",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-26T20:13:16.242Z",
+    "updatedAt": "2025-10-26T20:13:16.242Z"
+  },
+  "1761552462106rwq3rmb8j": {
+    "_id": "1761552462106rwq3rmb8j",
+    "id": "group_1761552462105_4hzhbc8cl",
+    "name": "Test Group API",
+    "description": "Testing API group creation",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin-001",
+    "participants": [
+      "admin-001"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-27T08:07:42.106Z",
+    "updatedAt": "2025-10-27T08:07:42.106Z"
+  },
+  "1761642892379qs69r5kxi": {
+    "_id": "1761642892379qs69r5kxi",
+    "id": "group_1761642892377_gmjpxjogn",
+    "name": "Test Matrix Group",
+    "description": "Test group for Matrix integration",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "participants": [
+      null
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T09:14:52.379Z",
+    "updatedAt": "2025-10-28T09:14:52.379Z"
+  },
+  "17616429212825tm1nu0ae": {
+    "_id": "17616429212825tm1nu0ae",
+    "id": "group_1761642921282_rfp4r6sbw",
+    "name": "Test Matrix Group",
+    "description": "Test group for Matrix integration",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin",
+    "participants": [
+      "admin"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T09:15:21.282Z",
+    "updatedAt": "2025-10-28T09:15:21.282Z"
+  },
+  "17616429273450ribec63f": {
+    "_id": "17616429273450ribec63f",
+    "id": "group_1761642927345_v0g9zqm29",
+    "name": "Test Matrix Group 2",
+    "description": "Test group for Matrix integration",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin",
+    "participants": [
+      "admin"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T09:15:27.345Z",
+    "updatedAt": "2025-10-28T09:15:41.477Z"
+  },
+  "17616487255350igq4carc": {
+    "_id": "17616487255350igq4carc",
+    "id": "group_1761648725527_9pdofzycp",
+    "name": "SFU Test Group",
+    "description": "Test group for SFU integration",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin",
+    "participants": [
+      "admin",
+      "testuser",
+      "testuser2"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T10:52:05.535Z",
+    "updatedAt": "2025-10-28T11:04:27.431Z"
+  },
+  "1761649454105q599h5fpv": {
+    "_id": "1761649454105q599h5fpv",
+    "id": "group_1761649454104_7on5o2epi",
+    "name": "Fixed Participants Group",
+    "description": "Test group with fixed participants array",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin",
+    "participants": [
+      "admin"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T11:04:14.105Z",
+    "updatedAt": "2025-10-28T11:04:14.105Z"
+  },
+  "1761649702822zghrc6cac": {
+    "_id": "1761649702822zghrc6cac",
+    "id": "group_1761649702821_zh67xfrsk",
+    "name": "Fixed Participants Group",
+    "description": "Test group with fixed participants array",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin",
+    "participants": [
+      "admin"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T11:08:22.822Z",
+    "updatedAt": "2025-10-28T11:08:22.822Z"
+  },
+  "1761649901974b30xvedfl": {
+    "_id": "1761649901974b30xvedfl",
+    "id": "group_1761649901974_15b3tg6v4",
+    "name": "Fixed Participants Group",
+    "description": "Test group with fixed participants array",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin",
+    "participants": [
+      "admin"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T11:11:41.974Z",
+    "updatedAt": "2025-10-28T11:11:41.974Z"
+  },
+  "1761650087910zy4jevikv": {
+    "_id": "1761650087910zy4jevikv",
+    "id": "group_1761650087910_2lswo90y0",
+    "name": "Fixed Participants Group",
+    "description": "Test group with fixed participants array",
+    "type": "trading",
+    "isPublic": false,
+    "maxParticipants": 200,
+    "allowRecording": true,
+    "pushToTalk": false,
+    "createdBy": "admin",
+    "participants": [
+      "admin"
+    ],
+    "sipEnabled": false,
+    "sipNumbers": [],
+    "retentionPolicy": {
+      "retentionDays": 2555,
+      "emailDelivery": false,
+      "emailRecipients": [],
+      "emailSchedule": "immediate"
+    },
+    "isActive": true,
+    "createdAt": "2025-10-28T11:14:47.911Z",
+    "updatedAt": "2025-10-28T11:14:47.911Z"
+  }
+}

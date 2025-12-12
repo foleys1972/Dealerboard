@@ -1,0 +1,26 @@
+<Application x:Class="TradePulse.Client.WPF.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:TradePulse.Client.WPF"
+             xmlns:converters="clr-namespace:TradePulse.Client.WPF.Converters">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesignTheme.Light.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesignTheme.Defaults.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            
+            <!-- Converters -->
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+            <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
+            <converters:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
+            <converters:NullToBooleanConverter x:Key="NullToBooleanConverter"/>
+        <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
+        <converters:FavoriteToColorConverter x:Key="FavoriteToColorConverter"/>
+        <converters:BroadcastTypeToVisibilityConverter x:Key="BroadcastTypeToVisibilityConverter"/>
+        <converters:StatusToTitleCaseConverter x:Key="StatusToTitleCaseConverter"/>
+            <local:BooleanToColorConverter x:Key="BooleanToColorConverter"/>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
+

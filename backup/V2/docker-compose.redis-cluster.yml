@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  # Redis Cluster Node 1 (Master)
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-1
+    ports:
+      - "6379:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly.aof --cluster-announce-ip 127.0.0.1 --cluster-announce-port 6379 --cluster-announce-bus-port 16379
+    volumes:
+      - redis_data_1:/data
+    networks:
+      - trading-intercom-network
+
+  # Redis Cluster Node 2 (Master)
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-2
+    ports:
+      - "6380:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly.aof --cluster-announce-ip 127.0.0.1 --cluster-announce-port 6380 --cluster-announce-bus-port 16380
+    volumes:
+      - redis_data_2:/data
+    networks:
+      - trading-intercom-network
+
+  # Redis Cluster Node 3 (Master)
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-3
+    ports:
+      - "6381:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly.aof --cluster-announce-ip 127.0.0.1 --cluster-announce-port 6381 --cluster-announce-bus-port 16381
+    volumes:
+      - redis_data_3:/data
+    networks:
+      - trading-intercom-network
+
+  # Redis Cluster Node 4 (Slave)
+  redis-node-4:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-4
+    ports:
+      - "6382:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly.aof --cluster-announce-ip 127.0.0.1 --cluster-announce-port 6382 --cluster-announce-bus-port 16382
+    volumes:
+      - redis_data_4:/data
+    networks:
+      - trading-intercom-network
+
+  # Redis Cluster Node 5 (Slave)
+  redis-node-5:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-5
+    ports:
+      - "6383:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly.aof --cluster-announce-ip 127.0.0.1 --cluster-announce-port 6383 --cluster-announce-bus-port 16383
+    volumes:
+      - redis_data_5:/data
+    networks:
+      - trading-intercom-network
+
+  # Redis Cluster Node 6 (Slave)
+  redis-node-6:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-6
+    ports:
+      - "6384:6379"
+    command: redis-server --port 6379 --cluster-enabled yes --cluster-config-file nodes.conf --cluster-node-timeout 5000 --appendonly yes --appendfilename appendonly.aof --cluster-announce-ip 127.0.0.1 --cluster-announce-port 6384 --cluster-announce-bus-port 16384
+    volumes:
+      - redis_data_6:/data
+    networks:
+      - trading-intercom-network
+
+  # Redis Cluster Initializer
+  redis-cluster-init:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-cluster-init
+    depends_on:
+      - redis-node-1
+      - redis-node-2
+      - redis-node-3
+      - redis-node-4
+      - redis-node-5
+      - redis-node-6
+    command: |
+      sh -c '
+        echo "Waiting for Redis nodes to start..."
+        sleep 10
+        
+        echo "Creating Redis cluster..."
+        redis-cli --cluster create \
+          127.0.0.1:6379 \
+          127.0.0.1:6380 \
+          127.0.0.1:6381 \
+          127.0.0.1:6382 \
+          127.0.0.1:6383 \
+          127.0.0.1:6384 \
+          --cluster-replicas 1 \
+          --cluster-yes
+        
+        echo "Redis cluster created successfully!"
+        
+        # Keep container running for monitoring
+        tail -f /dev/null
+      '
+    networks:
+      - trading-intercom-network
+
+  # Redis Cluster Monitor
+  redis-cluster-monitor:
+    image: redis:7-alpine
+    container_name: trading-intercom-redis-monitor
+    depends_on:
+      - redis-cluster-init
+    command: |
+      sh -c '
+        echo "Starting Redis cluster monitor..."
+        while true; do
+          echo "=== Redis Cluster Status ==="
+          redis-cli -h redis-node-1 -p 6379 cluster nodes
+          echo ""
+          redis-cli -h redis-node-1 -p 6379 cluster info
+          echo ""
+          sleep 30
+        done
+      '
+    networks:
+      - trading-intercom-network
+
+volumes:
+  redis_data_1:
+  redis_data_2:
+  redis_data_3:
+  redis_data_4:
+  redis_data_5:
+  redis_data_6:
+
+networks:
+  trading-intercom-network:
+    driver: bridge

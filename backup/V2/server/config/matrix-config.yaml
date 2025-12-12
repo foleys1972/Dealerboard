@@ -1,0 +1,149 @@
+# Matrix Federation Configuration for TradePulse
+# This configuration enables federation between multiple TradePulse servers
+
+# Server Configuration
+server_name: "trading-intercom.local"
+public_baseurl: "https://trading-intercom.local:8448"
+listen_address: "0.0.0.0"
+port: 8008
+bind_addresses: ["0.0.0.0"]
+
+# Database Configuration
+database:
+  name: "synapse"
+  args:
+    user: "synapse"
+    password: "trading-intercom-password"
+    database: "synapse"
+    host: "localhost"
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+# Federation Configuration
+federation_domain_whitelist:
+  - "trading-intercom.local"
+  - "trading-intercom-2.local"
+  - "trading-intercom-3.local"
+
+# Federation Port
+federation_port: 8448
+
+# TLS Configuration
+tls_certificate_path: "/path/to/tls/server.crt"
+tls_private_key_path: "/path/to/tls/server.key"
+
+# Registration Configuration
+registration_shared_secret: "trading-intercom-registration-secret"
+
+# App Service Configuration
+app_service_config_files:
+  - "/path/to/trading-intercom-appservice.yaml"
+
+# Logging Configuration
+log_config: "/path/to/logging.yaml"
+
+# Media Repository Configuration
+media_store_path: "/path/to/media"
+
+# User Directory Configuration
+user_directory:
+  enabled: true
+  search_all_users: true
+
+# Room Configuration
+room_invite_state_types:
+  - "m.room.member"
+  - "m.room.third_party_invite"
+  - "m.room.join_rules"
+
+# Event Configuration
+event_cache_size: "10K"
+event_cache_ttl_ms: 300000
+
+# Presence Configuration
+use_presence: true
+presence:
+  enabled: true
+
+# Push Configuration
+push:
+  enabled: true
+  include_content: false
+
+# Metrics Configuration
+enable_metrics: true
+report_stats: true
+
+# Redis Configuration (for clustering)
+redis:
+  enabled: true
+  host: "localhost"
+  port: 6379
+  password: "trading-intercom-redis-password"
+  db: 0
+
+# Worker Configuration (for horizontal scaling)
+worker_app: "synapse.app.homeserver"
+worker_name: "main"
+worker_replication_host: "localhost"
+worker_replication_http_port: 9093
+worker_replication_http_tls: false
+worker_listeners:
+  - type: http
+    port: 8008
+    bind_addresses: ["0.0.0.0"]
+    x_forwarded: true
+    resources:
+      - names: [client, federation]
+        compress: false
+
+# Federation Configuration
+federation_rcv_retry_delay: 2000
+federation_rcv_retry_multiplier: 1.5
+federation_rcv_retry_max_delay: 30000
+federation_rcv_retry_max_retries: 5
+
+# Rate Limiting
+rc_message:
+  per_second: 0.2
+  burst_count: 10
+
+rc_registration:
+  per_second: 0.17
+  burst_count: 3
+
+rc_login:
+  address:
+    per_second: 0.17
+    burst_count: 3
+  account:
+    per_second: 0.17
+    burst_count: 3
+  failed_attempts:
+    per_second: 0.17
+    burst_count: 3
+
+rc_admin_redaction:
+  per_second: 1
+  burst_count: 50
+
+rc_joins:
+  local:
+    per_second: 0.1
+    burst_count: 10
+  remote:
+    per_second: 0.01
+    burst_count: 10
+
+rc_3pid_validation:
+  per_second: 0.003
+  burst_count: 5
+
+rc_invites:
+  per_room:
+    per_second: 0.3
+    burst_count: 10
+  per_user:
+    per_second: 0.003
+    burst_count: 5

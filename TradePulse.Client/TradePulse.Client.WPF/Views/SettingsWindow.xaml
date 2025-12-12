@@ -1,0 +1,215 @@
+<Window x:Class="TradePulse.Client.WPF.Views.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Title="Settings - Audio &amp; Video Devices" 
+        Height="600" 
+        Width="700"
+        WindowStartupLocation="CenterOwner"
+        Background="#1b1b1b"
+        FontFamily="Segoe UI">
+    <Window.Resources>
+        <!-- Reuse Teams dark theme colors from MainWindow -->
+        <SolidColorBrush x:Key="TeamsDarkBackground" Color="#1b1b1b"/>
+        <SolidColorBrush x:Key="TeamsDarkHeader" Color="#252423"/>
+        <SolidColorBrush x:Key="TeamsDarkSurface" Color="#2d2c2c"/>
+        <SolidColorBrush x:Key="TeamsDarkText" Color="#ffffff"/>
+        <SolidColorBrush x:Key="TeamsDarkTextSecondary" Color="#B3FFFFFF"/>
+        <SolidColorBrush x:Key="TeamsDarkBorder" Color="#14FFFFFF"/>
+        <SolidColorBrush x:Key="TeamsBlue" Color="#0078d4"/>
+        <SolidColorBrush x:Key="TeamsBlueHover" Color="#106ebe"/>
+    </Window.Resources>
+    
+    <Grid Background="{StaticResource TeamsDarkBackground}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" 
+                Background="{StaticResource TeamsDarkHeader}"
+                BorderBrush="{StaticResource TeamsDarkBorder}"
+                BorderThickness="0,0,0,1"
+                Padding="24,16">
+            <TextBlock Text="Audio &amp; Video Settings" 
+                       FontSize="20" 
+                       FontWeight="600"
+                       Foreground="{StaticResource TeamsDarkText}"/>
+        </Border>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" 
+                     VerticalScrollBarVisibility="Auto"
+                     Padding="24">
+            <StackPanel>
+                
+                <!-- Audio Input Section -->
+                <Border Background="{StaticResource TeamsDarkSurface}"
+                        Margin="0,0,0,24"
+                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="Microphone (Input)" 
+                                   FontSize="16" 
+                                   FontWeight="600"
+                                   Foreground="{StaticResource TeamsDarkText}"
+                                   Margin="0,0,0,16"/>
+                        
+                        <ComboBox ItemsSource="{Binding InputDevices}"
+                                  SelectedItem="{Binding SelectedInputDevice}"
+                                  DisplayMemberPath="Name"
+                                  materialDesign:HintAssist.Hint="Select microphone"
+                                  Background="{StaticResource TeamsDarkBackground}"
+                                  Foreground="{StaticResource TeamsDarkText}"
+                                  BorderBrush="{StaticResource TeamsDarkBorder}"
+                                  Margin="0,0,0,16"/>
+                        
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Input Volume:" 
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                       Width="120"
+                                       Margin="0,0,12,0"/>
+                            <Slider Value="{Binding InputVolume}"
+                                    Minimum="0"
+                                    Maximum="1"
+                                    TickFrequency="0.1"
+                                    IsSnapToTickEnabled="True"
+                                    Width="200"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,12,0"/>
+                            <TextBlock Text="{Binding InputVolume, StringFormat='{}{0:P0}'}" 
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                       MinWidth="40"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Audio Output Section -->
+                <Border Background="{StaticResource TeamsDarkSurface}"
+                        Margin="0,0,0,24"
+                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="Speaker (Output)" 
+                                   FontSize="16" 
+                                   FontWeight="600"
+                                   Foreground="{StaticResource TeamsDarkText}"
+                                   Margin="0,0,0,16"/>
+                        
+                        <ComboBox ItemsSource="{Binding OutputDevices}"
+                                  SelectedItem="{Binding SelectedOutputDevice}"
+                                  DisplayMemberPath="Name"
+                                  materialDesign:HintAssist.Hint="Select speaker"
+                                  Background="{StaticResource TeamsDarkBackground}"
+                                  Foreground="{StaticResource TeamsDarkText}"
+                                  BorderBrush="{StaticResource TeamsDarkBorder}"
+                                  Margin="0,0,0,16"/>
+                        
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Output Volume:" 
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                       Width="120"
+                                       Margin="0,0,12,0"/>
+                            <Slider Value="{Binding OutputVolume}"
+                                    Minimum="0"
+                                    Maximum="1"
+                                    TickFrequency="0.1"
+                                    IsSnapToTickEnabled="True"
+                                    Width="200"
+                                    VerticalAlignment="Center"
+                                    Margin="0,0,12,0"/>
+                            <TextBlock Text="{Binding OutputVolume, StringFormat='{}{0:P0}'}" 
+                                       VerticalAlignment="Center"
+                                       Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                       MinWidth="40"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Video Section -->
+                <Border Background="{StaticResource TeamsDarkSurface}"
+                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="Camera (Video)" 
+                                   FontSize="16" 
+                                   FontWeight="600"
+                                   Foreground="{StaticResource TeamsDarkText}"
+                                   Margin="0,0,0,16"/>
+                        
+                        <ComboBox ItemsSource="{Binding VideoDevices}"
+                                  SelectedItem="{Binding SelectedVideoDevice}"
+                                  DisplayMemberPath="Name"
+                                  materialDesign:HintAssist.Hint="Select camera"
+                                  Background="{StaticResource TeamsDarkBackground}"
+                                  Foreground="{StaticResource TeamsDarkText}"
+                                  BorderBrush="{StaticResource TeamsDarkBorder}"
+                                  Margin="0,0,0,12"/>
+                        
+                        <TextBlock Text="Video device enumeration will be available in a future update." 
+                                   FontSize="12"
+                                   Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Footer with Buttons -->
+        <Border Grid.Row="2" 
+                Background="{StaticResource TeamsDarkHeader}"
+                BorderBrush="{StaticResource TeamsDarkBorder}"
+                BorderThickness="0,1,0,0"
+                Padding="24,16">
+            <StackPanel Orientation="Horizontal" 
+                       HorizontalAlignment="Right">
+                <Button Content="Refresh Devices"
+                        Command="{Binding RefreshDevicesCommand}"
+                        IsEnabled="{Binding IsRefreshing, Converter={StaticResource InverseBooleanConverter}}"
+                        Background="{StaticResource TeamsDarkBorder}"
+                        Foreground="{StaticResource TeamsDarkText}"
+                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                        BorderThickness="1"
+                        Padding="16,8"
+                        MinWidth="120"
+                        Margin="0,0,12,0"
+                        Cursor="Hand"/>
+                <Button Content="Save"
+                        Command="{Binding SaveSettingsCommand}"
+                        Background="{StaticResource TeamsBlue}"
+                        Foreground="White"
+                        BorderBrush="Transparent"
+                        BorderThickness="1"
+                        Padding="16,8"
+                        MinWidth="100"
+                        Margin="0,0,12,0"
+                        Cursor="Hand"/>
+                <Button Content="Cancel"
+                        Click="CancelButton_Click"
+                        Background="{StaticResource TeamsDarkBorder}"
+                        Foreground="{StaticResource TeamsDarkText}"
+                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                        BorderThickness="1"
+                        Padding="16,8"
+                        MinWidth="100"
+                        Cursor="Hand"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
+

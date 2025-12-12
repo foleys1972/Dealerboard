@@ -1,0 +1,313 @@
+using Microsoft.Extensions.Logging;
+using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
+using NAudio.CoreAudioApi;
+
+namespace TradePulse.Client.Core.Services;
+
+public class AudioService : IAudioService, IDisposable
+{
+    private readonly ILogger<AudioService> _logger;
+    private WaveInEvent? _waveIn;
+    private WaveOutEvent? _waveOut;
+    private BufferedWaveProvider? _bufferedWaveProvider;
+    private readonly WaveFormat _waveFormat = new WaveFormat(48000, 16, 2); // 48kHz, 16-bit, stereo
+    private bool _disposed = false;
+    private bool _isRecording = false;
+    private float _inputVolume = 1.0f;
+    private float _outputVolume = 1.0f;
+    private bool _isMuted = false;
+
+    public bool IsInitialized { get; private set; }
+    public bool IsRecording => _isRecording;
+    public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
+    public float InputVolume
+    {
+        get => _inputVolume;
+        set => _inputVolume = Math.Clamp(value, 0f, 1f);
+    }
+    public float OutputVolume
+    {
+        get => _outputVolume;
+        set
+        {
+            _outputVolume = Math.Clamp(value, 0f, 1f);
+            if (_waveOut != null)
+            {
+                _waveOut.Volume = _outputVolume;
+            }
+        }
+    }
+    public bool IsMuted
+    {
+        get => _isMuted;
+        set => _isMuted = value;
+    }
+
+    public event EventHandler<byte[]>? AudioDataAvailable;
+    public event EventHandler<float>? AudioLevelChanged;
+
+    public AudioService(ILogger<AudioService> logger)
+    {
+        _logger = logger;
+    }
+
+    public Task InitializeAsync()
+    {
+        try
+        {
+            // Initialize audio devices
+            IsInitialized = true;
+            _logger.LogInformation("Audio service initialized");
+            return Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize audio service");
+            throw;
+        }
+    }
+
+    public Task StartRecordingAsync()
+    {
+        if (_waveIn != null && IsRecording)
+        {
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            _waveIn = new WaveInEvent
+            {
+                WaveFormat = _waveFormat,
+                BufferMilliseconds = 20 // 20ms buffers for low latency
+            };
+
+            _waveIn.DataAvailable += OnDataAvailable;
+            _waveIn.RecordingStopped += OnRecordingStopped;
+
+            _waveIn.StartRecording();
+            _isRecording = true;
+            _logger.LogInformation("Audio recording started");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start recording");
+            throw;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task StopRecordingAsync()
+    {
+        if (_waveIn != null)
+        {
+            _waveIn.StopRecording();
+            _waveIn.Dispose();
+            _waveIn = null;
+            _isRecording = false;
+            _logger.LogInformation("Audio recording stopped");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task PlayAudioAsync(byte[] audioData)
+    {
+        try
+        {
+            if (_waveOut == null)
+            {
+                _waveOut = new WaveOutEvent
+                {
+                    Volume = _outputVolume
+                };
+
+                _bufferedWaveProvider = new BufferedWaveProvider(_waveFormat)
+                {
+                    BufferLength = _waveFormat.AverageBytesPerSecond, // 1 second buffer
+                    DiscardOnBufferOverflow = true
+                };
+
+                _waveOut.Init(_bufferedWaveProvider);
+            }
+
+            if (_bufferedWaveProvider != null)
+            {
+                _bufferedWaveProvider.AddSamples(audioData, 0, audioData.Length);
+            }
+
+            if (_waveOut.PlaybackState != PlaybackState.Playing)
+            {
+                _waveOut.Play();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to play audio");
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public Task SetInputDeviceAsync(int deviceIndex)
+    {
+        // Stop current recording if active
+        if (IsRecording)
+        {
+            StopRecordingAsync().Wait();
+        }
+
+        // Device will be set when starting recording
+        return Task.CompletedTask;
+    }
+
+    public Task SetOutputDeviceAsync(int deviceIndex)
+    {
+        // Stop current playback if active
+        if (_waveOut != null)
+        {
+            _waveOut.Stop();
+            _waveOut.Dispose();
+            _waveOut = null;
+            _bufferedWaveProvider = null;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public List<AudioDevice> GetInputDevices()
+    {
+        var devices = new List<AudioDevice>();
+        
+        try
+        {
+            var enumerator = new MMDeviceEnumerator();
+            var captureDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
+            
+            int index = 0;
+            foreach (var device in captureDevices)
+            {
+                devices.Add(new AudioDevice
+                {
+                    Index = index++,
+                    Name = device.FriendlyName,
+                    Channels = 2, // Default stereo
+                    SampleRate = 48000 // Default
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enumerate input devices");
+        }
+
+        return devices;
+    }
+
+    public List<AudioDevice> GetOutputDevices()
+    {
+        var devices = new List<AudioDevice>();
+        
+        try
+        {
+            var enumerator = new MMDeviceEnumerator();
+            var renderDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+            
+            int index = 0;
+            foreach (var device in renderDevices)
+            {
+                devices.Add(new AudioDevice
+                {
+                    Index = index++,
+                    Name = device.FriendlyName,
+                    Channels = 2, // Default stereo
+                    SampleRate = 48000 // Default
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enumerate output devices");
+        }
+
+        return devices;
+    }
+
+    private void OnDataAvailable(object? sender, WaveInEventArgs e)
+    {
+        if (_isMuted || e.BytesRecorded == 0)
+        {
+            return;
+        }
+
+        var audioData = new byte[e.BytesRecorded];
+        Array.Copy(e.Buffer, e.BytesRecorded, audioData, 0, e.BytesRecorded);
+
+        // Apply input volume
+        if (_inputVolume < 1.0f)
+        {
+            ApplyVolume(audioData, _inputVolume);
+        }
+
+        // Calculate audio level for visualization
+        var level = CalculateAudioLevel(audioData);
+        AudioLevelChanged?.Invoke(this, level);
+
+        // Emit audio data
+        AudioDataAvailable?.Invoke(this, audioData);
+    }
+
+    private void OnRecordingStopped(object? sender, StoppedEventArgs e)
+    {
+        _isRecording = false;
+        _logger.LogInformation("Recording stopped: {Exception}", e.Exception?.Message);
+    }
+
+    private void ApplyVolume(byte[] audioData, float volume)
+    {
+        for (int i = 0; i < audioData.Length; i += 2)
+        {
+            short sample = BitConverter.ToInt16(audioData, i);
+            sample = (short)(sample * volume);
+            byte[] bytes = BitConverter.GetBytes(sample);
+            audioData[i] = bytes[0];
+            audioData[i + 1] = bytes[1];
+        }
+    }
+
+    private float CalculateAudioLevel(byte[] audioData)
+    {
+        if (audioData.Length < 2) return 0f;
+
+        float sum = 0f;
+        int sampleCount = 0;
+
+        for (int i = 0; i < audioData.Length - 1; i += 2)
+        {
+            short sample = BitConverter.ToInt16(audioData, i);
+            float normalized = Math.Abs(sample / 32768f);
+            sum += normalized;
+            sampleCount++;
+        }
+
+        return sampleCount > 0 ? sum / sampleCount : 0f;
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            StopRecordingAsync().Wait(TimeSpan.FromSeconds(1));
+            
+            _waveOut?.Stop();
+            _waveOut?.Dispose();
+            _waveOut = null;
+            _bufferedWaveProvider = null;
+
+            _disposed = true;
+        }
+    }
+}
+

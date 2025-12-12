@@ -1,0 +1,3 @@
+Backend window: Trading Intercom Backend 
+Frontend window: Trading Intercom Frontend 
+Started at: 20251118210340 

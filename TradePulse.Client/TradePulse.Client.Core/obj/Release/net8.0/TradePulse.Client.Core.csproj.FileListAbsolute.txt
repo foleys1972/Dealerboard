@@ -1,0 +1,12 @@
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\TradePulse.Client.Core.csproj.AssemblyReference.cache
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\TradePulse.Client.Core.GeneratedMSBuildEditorConfig.editorconfig
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\TradePulse.Client.Core.AssemblyInfoInputs.cache
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\TradePulse.Client.Core.AssemblyInfo.cs
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\TradePulse.Client.Core.csproj.CoreCompileInputs.cache
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\bin\Release\net8.0\TradePulse.Client.Core.deps.json
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\bin\Release\net8.0\TradePulse.Client.Core.dll
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\bin\Release\net8.0\TradePulse.Client.Core.pdb
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\TradePulse.Client.Core.dll
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\refint\TradePulse.Client.Core.dll
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\TradePulse.Client.Core.pdb
+C:\Projects\intercom\TradePulse.Client\TradePulse.Client.Core\obj\Release\net8.0\ref\TradePulse.Client.Core.dll

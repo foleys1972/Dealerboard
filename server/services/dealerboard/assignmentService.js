@@ -17,6 +17,7 @@ const {
   shouldPropagateDealerboardAssignment,
 } = require('../../db/dealerboard/configGroups');
 const { resolveUserDbId } = require('../../db/dealerboard/helpers');
+const { maybeSeedDefaultAssignments } = require('./autoSeedService');
 const { LineOperationError } = require('./errors');
 
 function mapIntercomAssignmentRow(row) {
@@ -169,6 +170,10 @@ async function getDealerboardConfig({ userIdRaw, requestingUserIdRaw, requesterR
   if (userId !== requestingUserId && !isAdmin) {
     throw new LineOperationError(403, 'Access denied');
   }
+
+  // First-time users get a board auto-populated from their groups/contacts so
+  // they don't face an empty grid. Seed-once and best-effort (never throws).
+  await maybeSeedDefaultAssignments(userId);
 
   const rows = await getAssignmentsByUserId(userId);
   const assignments = buildAssignmentsStructure(rows);

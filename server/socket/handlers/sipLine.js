@@ -35,7 +35,11 @@ function attachSipLineHandlers(SocketHandler) {
         });
         updateLineCallStatus(String(lineId), String(callId), 'ringing');
 
-        this.io.to(this.getGlobalPresenceRoom()).emit('line-sip-incoming', {
+        // Broadcast to every connected dealerboard/intercom client (they filter by
+        // their assigned lineId). The 'presence:all' room is joined by platform
+        // admins only, so routing line events there silently dropped the audible
+        // ring for regular turret users — see services/sipLineStateWiring.js.
+        this.io.emit('line-sip-incoming', {
           lineId: String(lineId),
           callId: String(callId),
           sipCallId: String(callId),

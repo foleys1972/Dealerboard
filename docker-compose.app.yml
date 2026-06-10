@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13
+    container_name: tradepulse-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: trading_intercom
+      POSTGRES_USER: intercom_app
+      POSTGRES_PASSWORD: intercom
+    volumes:
+      - tradepulse_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:6-alpine
+    container_name: tradepulse-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - tradepulse_redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  tradepulse_postgres_data:
+  tradepulse_redis_data:

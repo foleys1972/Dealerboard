@@ -77,3 +77,92 @@ The code now:
 - **Status**: Known limitation, not configurable
 - **Workaround**: None available in current version
 
+
+---
+
+## Update 2026-06-10: Transport workarounds verified stale and removed
+
+The polling-only / no-compression workarounds that accumulated around the historical
+"Invalid frame header" and "hanging WebSocket upgrade" symptoms were re-tested
+empirically against the current stack:
+
+- Server: socket.io ^4.8.1, plain HTTP on :5000 (`HTTPS_ENABLED` unset)
+- Web-family client: socket.io-client ^4.7.2 (Node harness: `scripts/ws-transport-test.js`)
+- .NET client: SocketIOClient 3.1.1 (harness: `tools/socketio-net-test/`)
+
+Results (all against `http://localhost:5000`):
+
+| Scenario | socket.io-client | SocketIOClient.NET |
+|---|---|---|
+| polling only | OK | OK |
+| websocket direct | OK (22ms) | OK (107ms) |
+| polling → websocket upgrade | OK (136ms) | OK (107ms) |
+| all of the above with `perMessageDeflate`/`httpCompression` enabled | OK | OK |
+| 100KB payload over compressed websocket | OK (no frame errors) | n/a |
+
+Conclusion: the original failure does not reproduce on current library versions.
+Defaults are now WebSocket-first with compression enabled. Emergency kill switches
+(restore the old workaround behavior without code changes):
+
+- Server: `SOCKETIO_COMPRESSION=false` (disables perMessageDeflate/httpCompression)
+- Web client: `REACT_APP_SOCKET_FORCE_POLLING=true` (polling-only transport)
+- .NET client: `TRADEPULSE_SOCKET_AUTOUPGRADE=false` (stay on polling, no upgrade)
+
+Remaining known constraint (unrelated to the above): browser mixed-content policy.
+The CRA dev UI runs HTTPS (`client/.env: HTTPS=true`) while the backend is plain HTTP,
+so browsers block BOTH polling and websocket to non-localhost backends (e.g.
+`https://192.168.1.41:3000` page → `http://192.168.1.41:5000`). Polling never fixed
+this — the proper fix is enabling TLS on the backend in dev (`HTTPS_ENABLED=true`
+with the mkcert certs in the repo root), which also requires removing the
+HTTPS→HTTP downgrade heuristics in `clientRoutingService.normalizeDevApiUrl`,
+`useSocket.normalizeSocketUrl`, and `ServerUrlHelper.Normalize`.
+
+---
+
+## Update 2026-06-10 (part 2): TLS end-to-end in dev, downgrade heuristics removed
+
+### The actual root cause of the historical TLS failures
+
+`SocketIOOptions` in SocketIOClient.NET 3.1.1 has **no certificate hooks at all** —
+no `RemoteCertificateValidationCallback`, no `HttpMessageHandler` property. The
+reflection-based cert bypass in `SocketService.cs` silently did nothing, so every
+HTTPS attempt failed certificate validation, which is why the stack retreated to
+plain HTTP + polling and accumulated https→http downgrade heuristics in three
+places (useSocket.js, clientRoutingService.js, utils/api.js) plus ServerUrlHelper.cs.
+
+The working injection points (verified empirically) are on the **client object**:
+
+- `SocketIO.HttpClient` — a `DefaultHttpClient` whose private `_handler`
+  (HttpClientHandler) accepts `ServerCertificateCustomValidationCallback`
+- `SocketIO.ClientWebSocketProvider` — returns a `DefaultClientWebSocket` whose
+  private `_ws` (ClientWebSocket) accepts `Options.RemoteCertificateValidationCallback`
+
+This is implemented in `SocketService.ConfigureTransportSecurity()`. Set
+`TRADEPULSE_STRICT_TLS=true` to keep full certificate validation (recommended in
+production with a real certificate).
+
+### New dev topology
+
+- Backend: `HTTPS_ENABLED=true` in `.env`, serving `dev-cert.pem`/`dev-key.pem`
+  (mkcert; SANs: localhost, 127.0.0.1, ::1, 192.168.1.41; valid to 2028).
+- CRA dev UI: already HTTPS with the **same cert** (`client/.env` SSL_CRT_FILE).
+- Web client: `REACT_APP_API_URL=https://localhost:5000`; wss end-to-end.
+- .NET clients: default `https://localhost:5000` (appsettings, ConfigurationService,
+  login fallbacks); `ServerUrlHelper` no longer downgrades https→http and defaults
+  bare hosts to https.
+- Internal publisher↔subscriber loop: auto-derives `https://127.0.0.1:5000` via
+  `serverRole.applyLoopbackPublisherUrl` and already trusts the loopback cert.
+
+Verified end-to-end against `https://localhost:5000`: Node socket.io-client and
+SocketIOClient.NET both connect on polling, direct websocket (~30/106 ms), and
+polling→websocket upgrade, with compression enabled.
+
+### Trust note for new dev machines
+
+The cert was issued by a mkcert CA from the "Media-Centre" machine and that CA is
+not necessarily in your trust store. Browsers/OS: either run `mkcert -install` and
+regenerate the certs locally, import the issuing `rootCA.pem`, or accept the
+browser warning once (covers both :3000 and :5000 since they share the cert).
+Node diagnostics: pass `rejectUnauthorized: false` per connection (the harness
+`scripts/ws-transport-test.js` does this automatically for https targets);
+`NODE_TLS_REJECT_UNAUTHORIZED=0` is NOT honored by engine.io's transports.

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  server-unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install server dependencies
+        run: npm ci
+
+      - name: Server unit tests
+        run: npm test
+
+  client-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Build client (includes ESLint in CI mode)
+        working-directory: client
+        env:
+          CI: true
+          DISABLE_ESLINT_PLUGIN: false
+        run: npm run build
+
+  # PR/push: unit tests only. Full subscriber HTTP suite: see subscriber-api.yml

@@ -27,9 +27,18 @@ public partial class LoginWindow : Window
         var serviceProvider = App.GetServiceProvider();
         _authService = serviceProvider.GetRequiredService<IAuthService>();
         _logger = serviceProvider.GetService<ILogger<LoginWindow>>();
+        var callRecordingService = serviceProvider.GetService<ICallRecordingService>();
 
         viewModel.LoginSuccessful += (sender, e) =>
         {
+            try
+            {
+                _ = Task.Run(async () =>
+                {
+                    try { if (callRecordingService != null) await callRecordingService.RefreshClientConfigAsync(); } catch { }
+                });
+            }
+            catch { }
             ShowMainWindow();
         };
 
@@ -42,6 +51,14 @@ public partial class LoginWindow : Window
             {
                 Dispatcher.Invoke(() =>
                 {
+                    try
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try { if (callRecordingService != null) await callRecordingService.RefreshClientConfigAsync(); } catch { }
+                        });
+                    }
+                    catch { }
                     ShowMainWindow();
                 });
             });
@@ -68,7 +85,9 @@ public partial class LoginWindow : Window
             {
                 _mainWindowShown = true;
                 _logger?.LogInformation("Showing MainWindow");
+                Application.Current.MainWindow = mainWindow;
                 mainWindow.Show();
+                App.EnsureWindowVisible(mainWindow);
                 _logger?.LogInformation("Closing LoginWindow");
                 this.Close();
             }
@@ -121,17 +140,16 @@ public partial class LoginWindow : Window
 
                 if (!string.IsNullOrEmpty(localIp))
                 {
-                    // Try HTTPS first, then HTTP
                     viewModel.ServerUrl = $"https://{localIp}:5000";
                 }
                 else
                 {
-                    viewModel.ServerUrl = "https://192.168.1.41:5000";
+                    viewModel.ServerUrl = "https://localhost:5000";
                 }
             }
             catch
             {
-                viewModel.ServerUrl = "https://192.168.1.41:5000";
+                viewModel.ServerUrl = "https://localhost:5000";
             }
         }
     }

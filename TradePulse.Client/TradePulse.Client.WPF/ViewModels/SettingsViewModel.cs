@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Management;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -45,6 +46,9 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool _isRefreshing;
 
+    [ObservableProperty]
+    private bool _allowInsecureCertificates;
+
     public SettingsViewModel(
         ILogger<SettingsViewModel> logger,
         IAudioService audioService,
@@ -67,6 +71,8 @@ public partial class SettingsViewModel : ObservableObject
         
         InputVolume = _configService.GetValue<float?>("InputVolume") ?? 1.0f;
         OutputVolume = _configService.GetValue<float?>("OutputVolume") ?? 1.0f;
+
+        AllowInsecureCertificates = _configService.AllowInsecureCertificates;
 
         // Refresh devices and restore selections
         RefreshDevicesAsync().ContinueWith(_ =>
@@ -163,6 +169,8 @@ public partial class SettingsViewModel : ObservableObject
             _configService.SetValue("InputVolume", InputVolume);
             _configService.SetValue("OutputVolume", OutputVolume);
 
+            _configService.AllowInsecureCertificates = AllowInsecureCertificates;
+
             _configService.Save();
 
             _logger.LogInformation("Settings saved successfully");
@@ -188,10 +196,66 @@ public partial class SettingsViewModel : ObservableObject
         var devices = new List<VideoDevice>();
         try
         {
-            // Use Windows Media Foundation to enumerate video devices
-            // This requires P/Invoke or a library - for now, return empty list
-            // TODO: Implement video device enumeration using Windows APIs
-            _logger.LogInformation("Video device enumeration not yet implemented");
+            // Enumerate cameras using WMI. This avoids WinRT/Windows SDK platform version issues.
+            // Note: this provides detection/listing; actual capture is still performed by the WebView2 engine.
+            // Different OEM drivers surface devices differently, so we try multiple queries.
+
+            var queries = new[]
+            {
+                // Most USB webcams
+                "SELECT PNPDeviceID, Name FROM Win32_PnPEntity WHERE Service = 'usbvideo'",
+                // Some machines expose PNPClass
+                "SELECT PNPDeviceID, Name FROM Win32_PnPEntity WHERE (PNPClass = 'Image' OR PNPClass = 'Camera')",
+                // Camera device interface class GUID
+                "SELECT PNPDeviceID, Name FROM Win32_PnPEntity WHERE ClassGuid = '{CA3E7AB9-B4C3-4AE6-8251-579EF933890F}'",
+            };
+
+            foreach (var q in queries)
+            {
+                try
+                {
+                    using var searcher = new ManagementObjectSearcher(q);
+                    foreach (var o in searcher.Get())
+                    {
+                        if (o is not ManagementObject mo) continue;
+
+                        var id = (mo["PNPDeviceID"] as string) ?? string.Empty;
+                        var name = (mo["Name"] as string) ?? string.Empty;
+
+                        if (string.IsNullOrWhiteSpace(name))
+                        {
+                            continue;
+                        }
+
+                        devices.Add(new VideoDevice
+                        {
+                            Id = id,
+                            Name = name
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Video device enumeration query failed: {Query}", q);
+                }
+            }
+
+            devices = devices
+                .GroupBy(d => string.IsNullOrWhiteSpace(d.Id) ? d.Name : d.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .OrderBy(d => d.Name)
+                .ToList();
+
+            if (devices.Count == 0)
+            {
+                _logger.LogWarning("No video capture devices found (0 cameras detected). This may be due to missing drivers, disabled device, or OS privacy restrictions.");
+            }
+            else
+            {
+                _logger.LogInformation("Detected {Count} video capture device(s): {Devices}",
+                    devices.Count,
+                    string.Join(" | ", devices.Select(d => $"{d.Name} ({d.Id})")));
+            }
         }
         catch (Exception ex)
         {

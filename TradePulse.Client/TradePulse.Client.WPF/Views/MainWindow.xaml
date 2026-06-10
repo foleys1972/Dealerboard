@@ -7,11 +7,13 @@
         xmlns:models="clr-namespace:TradePulse.Client.Core.Models;assembly=TradePulse.Client.Core"
         xmlns:converters="clr-namespace:TradePulse.Client.WPF.Converters;assembly=TradePulse.Client.WPF"
         xmlns:local="clr-namespace:TradePulse.Client.WPF;assembly=TradePulse.Client.WPF"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
         mc:Ignorable="d"
-        Title="TradePulse - Trading Communication Platform" 
+        Title="TradeCom - Trading Communication Platform" 
         Height="900" 
         Width="1400"
         WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         Background="#1b1b1b"
         FontFamily="Segoe UI">
     <Window.Resources>
@@ -26,6 +28,7 @@
         <SolidColorBrush x:Key="TeamsDarkBorder" Color="#14FFFFFF"/>
         <SolidColorBrush x:Key="TeamsDarkBorderHover" Color="#26FFFFFF"/>
         <SolidColorBrush x:Key="TeamsBlueTransparent" Color="#1A0078D4"/>
+        <SolidColorBrush x:Key="TeamsBlueTransparentLight" Color="#330078D4"/>
         <SolidColorBrush x:Key="TeamsBlueBorder" Color="#4D0078D4"/>
         <SolidColorBrush x:Key="TeamsBlue" Color="#0078d4"/>
         <SolidColorBrush x:Key="TeamsBlueHover" Color="#106ebe"/>
@@ -33,6 +36,45 @@
         <SolidColorBrush x:Key="TeamsRedHover" Color="#a4262c"/>
         <SolidColorBrush x:Key="TeamsGreen" Color="#107c10"/>
         <SolidColorBrush x:Key="TeamsYellow" Color="#ffaa44"/>
+
+        <!-- ToggleButton Style (used for broadcast monitor switch) -->
+        <Style x:Key="TeamsToggleSwitchStyle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="20"/>
+            <Setter Property="Background" Value="#3a3a3a"/>
+            <Setter Property="BorderBrush" Value="#3a3a3a"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Grid Width="{TemplateBinding Width}" Height="{TemplateBinding Height}">
+                            <Border x:Name="Track"
+                                    CornerRadius="10"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"/>
+                            <Ellipse x:Name="Thumb"
+                                     Width="16"
+                                     Height="16"
+                                     Fill="White"
+                                     Margin="2,2,2,2"
+                                     HorizontalAlignment="Left"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="{StaticResource TeamsBlue}"/>
+                                <Setter TargetName="Track" Property="BorderBrush" Value="{StaticResource TeamsBlue}"/>
+                                <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Track" Property="Opacity" Value="0.5"/>
+                                <Setter TargetName="Thumb" Property="Opacity" Value="0.7"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         
         <!-- Section Style -->
         <Style x:Key="SectionStyle" TargetType="Border">
@@ -96,6 +138,12 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <Style x:Key="TeamsGreenButtonStyle" TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
         
         <!-- Danger Button Style -->
         <Style x:Key="TeamsDangerButtonStyle" TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
@@ -106,6 +154,34 @@
                 <Trigger Property="IsMouseOver" Value="True">
                     <Setter Property="Background" Value="{StaticResource TeamsRedHover}"/>
                 </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Broadcast PTT/Latch styles -->
+        <Style x:Key="BroadcastPttButtonStyle" TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+            <Setter Property="Background" Value="#26FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource TeamsDarkBorderHover}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsPttTransmitting}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsPttLatched}" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource TeamsBlueBorder}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="BroadcastLatchButtonStyle" TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+            <Setter Property="Background" Value="#26FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource TeamsDarkBorderHover}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsPttLatched}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </DataTrigger>
             </Style.Triggers>
         </Style>
     </Window.Resources>
@@ -138,7 +214,7 @@
                                            Foreground="White"
                                            VerticalAlignment="Center"
                                            Margin="0,0,8,0"/>
-                        <TextBlock Text="TradePulse" 
+                        <TextBlock Text="TradeCom" 
                                FontSize="18" 
                                FontWeight="600"
                                    Foreground="White"
@@ -177,6 +253,46 @@
                 <StackPanel Grid.Column="2" 
                            Orientation="Horizontal" 
                            VerticalAlignment="Center">
+                    <Button Command="{Binding ToggleDndCommand}"
+                            Padding="10,6"
+                            Margin="0,0,8,0"
+                            ToolTip="Toggle Do Not Disturb (auto-reject direct calls)">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsDndEnabled}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="MinusCircle" Width="16" Height="16" Foreground="White" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="DND" Foreground="White" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Style="{StaticResource TeamsButtonStyle}"
+                            Command="{Binding ConfigureCallForwardCommand}"
+                            Margin="0,0,8,0"
+                            ToolTip="Configure immediate call forward (direct calls)">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="PhoneForward" Width="16" Height="16" Foreground="White" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Forward" Foreground="White" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Style="{StaticResource TeamsButtonStyle}"
+                            Command="{Binding StartConferenceCommand}"
+                            Margin="0,0,8,0"
+                            ToolTip="Start 1:N conference (REMAIN_GROUP)">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="AccountMultiple" Width="16" Height="16" Foreground="White" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Conference" Foreground="White" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+
                     <Button Content="Settings"
                             Style="{StaticResource TeamsButtonStyle}"
                             Command="{Binding SettingsCommand}"
@@ -196,6 +312,95 @@
                                        VerticalAlignment="Center"/>
                         </StackPanel>
                     </Button>
+
+                    <Button Style="{StaticResource TeamsButtonStyle}"
+                            Command="{Binding ExitCommand}"
+                            Margin="8,0,0,0"
+                            ToolTip="Exit">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="CloseCircle" 
+                                                   Width="16" 
+                                                   Height="16"
+                                                   Foreground="White"
+                                                   Margin="0,0,6,0"
+                                                   VerticalAlignment="Center"/>
+                            <TextBlock Text="Exit" 
+                                       Foreground="White"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Incoming Call Banner -->
+        <Border Visibility="Collapsed"/>
+
+        <!-- In-Call Banner (prominent red) -->
+        <Border Grid.Row="0"
+                Background="{StaticResource TeamsRed}"
+                CornerRadius="6"
+                Padding="12"
+                Margin="24,64,24,0"
+                VerticalAlignment="Top"
+                Visibility="Collapsed">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding CurrentCall.State}" Value="Connected">
+                            <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <materialDesign:PackIcon Grid.Column="0"
+                                         Kind="PhoneInTalk"
+                                         Width="20"
+                                         Height="20"
+                                         Foreground="White"
+                                         VerticalAlignment="Center"
+                                         Margin="0,0,10,0"/>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="CALL IN PROGRESS"
+                               FontSize="12"
+                               FontWeight="700"
+                               Foreground="White"/>
+                    <TextBlock Text="{Binding CallStatus}"
+                               FontSize="13"
+                               FontWeight="600"
+                               Foreground="White"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Background="#26FFFFFF"
+                            CornerRadius="10"
+                            Padding="8,2"
+                            VerticalAlignment="Center"
+                            Margin="0,0,8,0">
+                        <TextBlock Text="{Binding CallDuration}"
+                                   FontSize="12"
+                                   FontWeight="700"
+                                   Foreground="White"/>
+                    </Border>
+                    <Button Style="{StaticResource TeamsDangerButtonStyle}"
+                            Command="{Binding HangupCommand}"
+                            Padding="10,6"
+                            ToolTip="Hang up">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="PhoneHangup" Width="16" Height="16" Foreground="White" Margin="0,0,6,0"/>
+                            <TextBlock Text="End" Foreground="White" FontSize="13" FontWeight="600"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -207,7 +412,7 @@
                      Padding="24">
             <Grid>
             <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="320"/>
+                    <ColumnDefinition Width="440"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -221,11 +426,218 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
+                    <!-- Video Panel (in-column) -->
+                    <Border Grid.Row="0"
+                           Background="Black"
+                           BorderBrush="{StaticResource TeamsDarkBorder}"
+                           BorderThickness="1"
+                           CornerRadius="8"
+                           Height="420"
+                           Margin="12,0,12,16"
+                           HorizontalAlignment="Stretch"
+                           Visibility="{Binding IsCallActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- In-call status banner (red -> green) -->
+                            <Border Grid.Row="0"
+                                    CornerRadius="6"
+                                    Padding="8"
+                                    Margin="12,12,12,6">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CurrentCall.State}" Value="Connected">
+                                                <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <DockPanel>
+                                    <materialDesign:PackIcon Kind="PhoneInTalk" Width="16" Height="16" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock Text="{Binding CallStatus}" Foreground="White" FontSize="12" FontWeight="700" TextTrimming="CharacterEllipsis"/>
+                                </DockPanel>
+                            </Border>
+
+                            <StackPanel Grid.Row="1" Margin="12,6,12,8">
+                                <TextBlock Text="{Binding CallStatus}"
+                                           Foreground="White"
+                                           FontSize="13"
+                                           FontWeight="700"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding CallDuration}"
+                                           Foreground="#B3FFFFFF"
+                                           FontSize="11"
+                                           FontWeight="600"
+                                           Margin="0,4,0,0"/>
+                            </StackPanel>
+
+                            <Grid Grid.Row="2">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <wv2:WebView2 x:Name="VideoWebView"
+                                                 HorizontalAlignment="Stretch"
+                                                 VerticalAlignment="Stretch"/>
+                                </Grid>
+
+                                <!-- In-call controls under video panel -->
+                                <Border Grid.Row="1"
+                                        Background="#141414"
+                                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="8"
+                                        Margin="12,8,12,12"
+                                        Visibility="{Binding IsCallActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <WrapPanel Orientation="Horizontal">
+                                        <Button Style="{StaticResource TeamsDangerButtonStyle}"
+                                                Command="{Binding HangupCommand}"
+                                                Padding="10,6"
+                                                Margin="0,0,8,0"
+                                                ToolTip="End Call">
+                                            <StackPanel Orientation="Horizontal">
+                                                <materialDesign:PackIcon Kind="PhoneHangup" Width="16" Height="16" Foreground="White" Margin="0,0,6,0"/>
+                                                <TextBlock Text="End" Foreground="White" FontSize="12" FontWeight="700"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button Padding="10,6"
+                                                Margin="0,0,8,0"
+                                                ToolTip="Push To Talk"
+                                                PreviewMouseLeftButtonDown="PttButton_PreviewMouseLeftButtonDown"
+                                                PreviewMouseLeftButtonUp="PttButton_PreviewMouseLeftButtonUp">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource TeamsPrimaryButtonStyle}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsPttTransmitting}" Value="True">
+                                                            <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <TextBlock Text="PTT" Foreground="White" FontSize="12" FontWeight="700"/>
+                                        </Button>
+
+                                        <Button Command="{Binding ToggleLatchCommand}"
+                                                Padding="10,6"
+                                                Margin="0,0,8,0"
+                                                ToolTip="Latch">
+                                            <Button.Content>
+                                                <TextBlock Text="Latch" Foreground="White" FontSize="12" FontWeight="700"/>
+                                            </Button.Content>
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsPttLatched}" Value="True">
+                                                            <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                                                            <Setter Property="BorderBrush" Value="Transparent"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+
+                                        <Button Style="{StaticResource TeamsButtonStyle}"
+                                                Command="{Binding AddVideoCommand}"
+                                                Padding="10,6"
+                                                Margin="0,0,8,0"
+                                                ToolTip="Enable video"
+                                                Visibility="{Binding CanAddVideo, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <StackPanel Orientation="Horizontal">
+                                                <materialDesign:PackIcon Kind="Video" Width="16" Height="16" Foreground="White" Margin="0,0,6,0"/>
+                                                <TextBlock Text="Video" Foreground="White" FontSize="12" FontWeight="700"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button Command="{Binding MuteCommand}"
+                                                Padding="10,6"
+                                                Margin="0,0,0,0"
+                                                ToolTip="Mute">
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CurrentCall.IsMuted}" Value="True">
+                                                            <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                                                            <Setter Property="BorderBrush" Value="Transparent"/>
+                                                            <Setter Property="Foreground" Value="White"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                            <materialDesign:PackIcon Kind="MicrophoneOff" Width="16" Height="16" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                                        </Button>
+                                    </WrapPanel>
+                                </Border>
+
+                                <Border Grid.Row="1"
+                                        Background="#2b2b2b"
+                                        BorderBrush="{StaticResource TeamsBlue}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Padding="12"
+                                        Margin="12"
+                                        VerticalAlignment="Bottom"
+                                        Visibility="{Binding HasIncomingCall, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <materialDesign:PackIcon Grid.Column="0" Kind="PhoneIncoming" Width="20" Height="20" Foreground="{StaticResource TeamsBlue}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <TextBlock Text="Incoming call" FontSize="13" FontWeight="700" Foreground="White"/>
+                                            <TextBlock FontSize="11" Foreground="#B3FFFFFF">
+                                                <TextBlock.Text>
+                                                    <MultiBinding StringFormat="{}{0} ({1})">
+                                                        <Binding Path="CurrentCall.CallerName"/>
+                                                        <Binding Path="CurrentCall.CallerId"/>
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource TeamsPrimaryButtonStyle}"
+                                                    Command="{Binding AnswerIncomingCallCommand}"
+                                                    Margin="0,0,8,0"
+                                                    Padding="10,6"
+                                                    ToolTip="Answer">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <materialDesign:PackIcon Kind="Phone" Width="16" Height="16" Foreground="White" Margin="0,0,6,0"/>
+                                                    <TextBlock Text="Answer" Foreground="White" FontSize="13" FontWeight="600"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Style="{StaticResource TeamsDangerButtonStyle}"
+                                                    Command="{Binding RejectIncomingCallCommand}"
+                                                    Padding="10,6"
+                                                    ToolTip="Reject">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <materialDesign:PackIcon Kind="PhoneHangup" Width="16" Height="16" Foreground="White" Margin="0,0,6,0"/>
+                                                    <TextBlock Text="Reject" Foreground="White" FontSize="13" FontWeight="600"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
                     <!-- Search Header -->
-                        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+                        <StackPanel Grid.Row="1" Margin="0,0,0,16">
                             <TextBlock Text="Contacts" 
                                        FontSize="20" 
                                        FontWeight="600"
@@ -240,10 +652,116 @@
                                      Foreground="{StaticResource TeamsDarkText}"
                                      BorderBrush="{StaticResource TeamsDarkBorderHover}"
                                  Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <Grid Margin="0,10,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <ComboBox Grid.Column="0"
+                                      ItemsSource="{Binding CompanyOptions}"
+                                      SelectedItem="{Binding SelectedCompany, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Height="34"
+                                      Background="{StaticResource TeamsDarkSurface}"
+                                      Foreground="{StaticResource TeamsDarkText}"
+                                      BorderBrush="{StaticResource TeamsDarkBorderHover}"
+                                      ToolTip="Company"/>
+
+                            <ComboBox Grid.Column="2"
+                                      ItemsSource="{Binding LocationOptions}"
+                                      SelectedItem="{Binding SelectedLocation, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Height="34"
+                                      Background="{StaticResource TeamsDarkSurface}"
+                                      Foreground="{StaticResource TeamsDarkText}"
+                                      BorderBrush="{StaticResource TeamsDarkBorderHover}"
+                                      ToolTip="Location"/>
+
+                            <ComboBox Grid.Column="4"
+                                      ItemsSource="{Binding TenantScopeOptions}"
+                                      SelectedItem="{Binding SelectedTenantScope, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                      Height="34"
+                                      Background="{StaticResource TeamsDarkSurface}"
+                                      Foreground="{StaticResource TeamsDarkText}"
+                                      BorderBrush="{StaticResource TeamsDarkBorderHover}"
+                                      ToolTip="Scope"/>
+                        </Grid>
                     </StackPanel>
 
+                    <!-- Contacts List -->
+                    <Border Grid.Row="2"
+                            Background="{StaticResource TeamsDarkSurface}"
+                            BorderBrush="{StaticResource TeamsDarkBorder}"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="10"
+                            Margin="0,0,0,12">
+                        <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding Contacts}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{StaticResource TeamsDarkBorder}"
+                                                BorderThickness="1"
+                                                CornerRadius="4"
+                                                Padding="10"
+                                                Margin="0,0,0,8">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <Ellipse Width="8"
+                                                                 Height="8"
+                                                                 Margin="0,0,8,0"
+                                                                 VerticalAlignment="Center"
+                                                                 Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"/>
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   FontSize="13"
+                                                                   Foreground="{StaticResource TeamsDarkText}"
+                                                                   TextTrimming="CharacterEllipsis"/>
+                                                    </StackPanel>
+                                                    <TextBlock FontSize="11"
+                                                               Foreground="{StaticResource TeamsDarkTextTertiary}"
+                                                               Margin="0,4,0,0">
+                                                        <Run Text="{Binding Username}"/>
+                                                        <Run Text="  "/>
+                                                        <Run Text="{Binding SipUri}"/>
+                                                    </TextBlock>
+                                                </StackPanel>
+
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                    <Button Style="{StaticResource TeamsPrimaryButtonStyle}"
+                                                            Padding="10,6"
+                                                            Margin="0,0,8,0"
+                                                            Command="{Binding DataContext.StartCallForContactCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="Voice Call">
+                                                        <materialDesign:PackIcon Kind="Phone" Width="16" Height="16" Foreground="White"/>
+                                                    </Button>
+
+                                                    <Button Style="{StaticResource TeamsGreenButtonStyle}"
+                                                            Padding="10,6"
+                                                            Command="{Binding DataContext.StartVideoCallForContactCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding}"
+                                                            ToolTip="Video Call">
+                                                        <materialDesign:PackIcon Kind="Video" Width="16" Height="16" Foreground="White"/>
+                                                    </Button>
+                                                </StackPanel>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </Border>
+
                     <!-- User Configuration Panel -->
-                    <Border Grid.Row="1" 
+                    <Border Grid.Row="3" 
                            Visibility="{Binding CurrentUser, Converter={StaticResource BooleanToVisibilityConverter}}"
                                Background="{StaticResource TeamsDarkSurface}"
                                BorderBrush="{StaticResource TeamsDarkBorder}"
@@ -295,7 +813,7 @@
                     </Border>
 
                         <!-- Groups Section -->
-                    <Border Grid.Row="2" 
+                    <Border Grid.Row="4" 
                            Visibility="{Binding CurrentUser, Converter={StaticResource BooleanToVisibilityConverter}}"
                                Background="{StaticResource TeamsDarkSurface}"
                                BorderBrush="{StaticResource TeamsDarkBorder}"
@@ -351,12 +869,15 @@
                     </Grid.RowDefinitions>
 
                     <!-- Grid Layout for Broadcasts, Groups, Contacts -->
-                    <UniformGrid Columns="3" 
-                                Rows="1"
-                                Visibility="{Binding IsInCall, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="0.8*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1.2*"/>
+                        </Grid.ColumnDefinitions>
                         
                         <!-- Broadcast Monitors Section -->
-                        <Border Style="{StaticResource SectionStyle}" Margin="0,0,6,0">
+                        <Border Grid.Column="0" Style="{StaticResource SectionStyle}" Margin="0,0,6,0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,12">
                                     <Grid.ColumnDefinitions>
@@ -381,68 +902,110 @@
                                     </Border>
                                 </Grid>
                                 
-                                <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto">
-                                    <ItemsControl ItemsSource="{Binding Broadcasts}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border BorderBrush="{StaticResource TeamsDarkBorder}"
-                                                        BorderThickness="1"
-                                                        CornerRadius="4"
-                                                        Padding="10"
-                                                        Margin="0,0,0,8"
-                                                        Cursor="Hand">
-                                                    <Border.Style>
-                                                        <Style TargetType="Border">
-                                                            <Setter Property="Background" Value="{StaticResource TeamsDarkSurface}"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding IsActive}" Value="True">
-                                                                    <Setter Property="Background" Value="{StaticResource TeamsBlueTransparentLight}"/>
-                                                                    <Setter Property="BorderBrush" Value="{StaticResource TeamsBlueBorder}"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Border.Style>
-                                                    <StackPanel>
-                                                        <Grid>
-                                                            <Grid.ColumnDefinitions>
-                                                                <ColumnDefinition Width="*"/>
-                                                                <ColumnDefinition Width="Auto"/>
-                                                            </Grid.ColumnDefinitions>
-                                                            <StackPanel Grid.Column="0">
+                                <ItemsControl ItemsSource="{Binding Broadcasts}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border BorderBrush="{StaticResource TeamsDarkBorder}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="4"
+                                                    Padding="10"
+                                                    Margin="0,0,0,8"
+                                                    Cursor="Hand">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{StaticResource TeamsDarkSurface}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                                                <Setter Property="Background" Value="{StaticResource TeamsBlueTransparentLight}"/>
+                                                                <Setter Property="BorderBrush" Value="{StaticResource TeamsBlueBorder}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <StackPanel>
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0">
+                                                            <TextBlock FontSize="11"
+                                                                      Foreground="{StaticResource TeamsDarkTextTertiary}"
+                                                                      Margin="0,0,0,2">
+                                                                <Run Text="Line "/>
+                                                                <Run Text="{Binding SlotIndex}"/>
+                                                            </TextBlock>
+                                                            <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                                                 <TextBlock Text="{Binding Name}" 
                                                                           FontWeight="400"
                                                                           FontSize="13"
                                                                           Foreground="{StaticResource TeamsDarkText}"
-                                                                          Margin="0,0,0,4"/>
-                                                                <TextBlock Text="{Binding ListenerCount, StringFormat='{}{0} monitoring'}"
-                                                                          FontSize="11"
-                                                                          Foreground="{StaticResource TeamsDarkTextTertiary}"/>
+                                                                          VerticalAlignment="Center"/>
+
+                                                                <Border Background="{StaticResource TeamsGreen}"
+                                                                        CornerRadius="8"
+                                                                        Padding="6,1"
+                                                                        Margin="8,0,0,0"
+                                                                        VerticalAlignment="Center"
+                                                                        Visibility="{Binding IsVoxActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                                    <TextBlock Text="AUDIO"
+                                                                              FontSize="10"
+                                                                              FontWeight="600"
+                                                                              Foreground="White"
+                                                                              VerticalAlignment="Center"/>
+                                                                </Border>
                                                             </StackPanel>
-                                                            <ToggleButton Grid.Column="1"
-                                                                         IsChecked="{Binding IsActive}"
+                                                            <TextBlock Text="{Binding ListenerCount, StringFormat='{}{0} monitoring'}"
+                                                                      FontSize="11"
+                                                                      Foreground="{StaticResource TeamsDarkTextTertiary}"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                                            <ToggleButton IsChecked="{Binding IsActive, Mode=OneWay}"
                                                                          Command="{Binding DataContext.ToggleBroadcastMonitorForItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                          CommandParameter="{Binding}"
-                                                                         Width="32"
-                                                                         Height="20"
-                                                                         VerticalAlignment="Center"/>
-                                                        </Grid>
-                                                        <Button Content="PTT"
-                                                                Style="{StaticResource TeamsButtonStyle}"
-                                      Margin="0,8,0,0"
-                                                                Command="{Binding DataContext.StartBroadcastPTTCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                         Style="{StaticResource TeamsToggleSwitchStyle}"
+                                                                         Margin="0,0,0,6"
+                                                                         IsEnabled="{Binding IsConfigured}"/>
+                                                            <Button Content="Assign"
+                                                                    Style="{StaticResource TeamsButtonStyle}"
+                                                                    Padding="6,4"
+                                                                    FontSize="12"
+                                                                    Command="{Binding DataContext.ConfigureBroadcastSlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                                    CommandParameter="{Binding}"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                    <Grid Margin="0,8,0,0" Visibility="{Binding IsActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <Button Grid.Column="0"
+                                                                Content="PTT"
+                                                                Style="{StaticResource BroadcastPttButtonStyle}"
+                                                                PreviewMouseLeftButtonDown="BroadcastPttButton_PreviewMouseLeftButtonDown"
+                                                                PreviewMouseLeftButtonUp="BroadcastPttButton_PreviewMouseLeftButtonUp"
+                                                                ToolTip="PTT (green when transmitting)"/>
+
+                                                        <Button Grid.Column="1"
+                                                                Content="Latch"
+                                                                Style="{StaticResource BroadcastLatchButtonStyle}"
+                                                                Margin="8,0,0,0"
+                                                                Padding="10,6"
+                                                                Command="{Binding DataContext.ToggleBroadcastLatchForItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                                 CommandParameter="{Binding}"
-                                                                Visibility="{Binding IsActive, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                                    </StackPanel>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
+                                                                ToolTip="Toggle latch mode"/>
+                                                    </Grid>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                         </StackPanel>
                     </Border>
 
                         <!-- Group Calls Section -->
-                        <Border Style="{StaticResource SectionStyle}" Margin="3,0">
+                        <Border Grid.Column="1" Style="{StaticResource SectionStyle}" Margin="3,0">
                         <StackPanel>
                                 <Grid Margin="0,0,0,12">
                                     <Grid.ColumnDefinitions>
@@ -453,15 +1016,6 @@
                                         <materialDesign:PackIcon Kind="Users" Width="16" Height="16" Foreground="{StaticResource TeamsDarkTextSecondary}" Margin="0,0,6,0" VerticalAlignment="Center"/>
                                         <TextBlock Text="GROUP CALLS" Style="{StaticResource SectionTitleStyle}"/>
                                     </StackPanel>
-                                    <Button Grid.Column="1"
-                                            Style="{StaticResource TeamsButtonStyle}"
-                                            Command="{Binding CreateGroupCommand}"
-                                            Padding="6,4">
-                                        <StackPanel Orientation="Horizontal">
-                                            <materialDesign:PackIcon Kind="Plus" Width="14" Height="14" Foreground="{StaticResource TeamsDarkText}" Margin="0,0,4,0"/>
-                                            <TextBlock Text="New" FontSize="12"/>
-                                        </StackPanel>
-                                    </Button>
                                 </Grid>
                                 
                                 <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto">
@@ -473,29 +1027,108 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                                <Border Background="{StaticResource TeamsDarkSurface}"
-                                                        BorderBrush="{StaticResource TeamsDarkBorder}"
-                                                   BorderThickness="1"
+                                                <Border BorderBrush="{StaticResource TeamsDarkBorder}"
+                                                        BorderThickness="1"
                                                         CornerRadius="4"
                                                         Padding="12"
                                                         Margin="0,0,6,6"
                                                         Cursor="Hand"
                                                         MouseLeftButtonDown="GroupCallItem_MouseLeftButtonDown">
-                                                    <TextBlock Text="{Binding Name}" 
-                                                              FontWeight="400"
-                                                              FontSize="13"
-                                                              Foreground="{StaticResource TeamsDarkText}"
-                                                              TextAlignment="Center"/>
-                                            </Border>
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{StaticResource TeamsDarkSurface}"/>
+                                                            <Setter Property="Opacity" Value="1"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsConfigured}" Value="False">
+                                                                    <Setter Property="Opacity" Value="0.55"/>
+                                                                    <Setter Property="Cursor" Value="Arrow"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                    <StackPanel>
+                                                        <TextBlock FontSize="11"
+                                                                   Foreground="{StaticResource TeamsDarkTextTertiary}"
+                                                                   Margin="0,0,0,2"
+                                                                   TextAlignment="Center">
+                                                            <Run Text="Button "/>
+                                                            <Run Text="{Binding SlotIndex}"/>
+                                                        </TextBlock>
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   FontWeight="400"
+                                                                   FontSize="13"
+                                                                   Foreground="{StaticResource TeamsDarkText}"
+                                                                   TextAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
                                         </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                             </ScrollViewer>
+
+                                <Border Background="{StaticResource TeamsDarkSurface}"
+                                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="12"
+                                        Margin="0,12,0,0">
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                            <materialDesign:PackIcon Kind="Bell" Width="16" Height="16" Foreground="{StaticResource TeamsDarkTextSecondary}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text="NOTIFICATIONS" Style="{StaticResource SectionTitleStyle}"/>
+                                        </StackPanel>
+
+                                        <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl ItemsSource="{Binding Notifications}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Background="{StaticResource TeamsDarkSurface}"
+                                                                BorderBrush="{StaticResource TeamsDarkBorder}"
+                                                                BorderThickness="1"
+                                                                CornerRadius="4"
+                                                                Padding="10"
+                                                                Margin="0,0,0,8">
+                                                            <Grid>
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto"/>
+                                                                    <ColumnDefinition Width="*"/>
+                                                                </Grid.ColumnDefinitions>
+                                                                <materialDesign:PackIcon Grid.Column="0"
+                                                                                        Kind="{Binding IconKind}"
+                                                                                        Width="18"
+                                                                                        Height="18"
+                                                                                        Foreground="{StaticResource TeamsBlue}"
+                                                                                        Margin="0,0,10,0"
+                                                                                        VerticalAlignment="Top"/>
+                                                                <StackPanel Grid.Column="1">
+                                                                    <TextBlock Text="{Binding Title}"
+                                                                               FontWeight="700"
+                                                                               FontSize="12"
+                                                                               Foreground="{StaticResource TeamsDarkText}"
+                                                                               TextTrimming="CharacterEllipsis"/>
+                                                                    <TextBlock Text="{Binding Message}"
+                                                                               FontSize="11"
+                                                                               Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                                                               TextWrapping="Wrap"
+                                                                               Margin="0,4,0,0"/>
+                                                                    <TextBlock Text="{Binding TimestampText}"
+                                                                               FontSize="10"
+                                                                               Foreground="{StaticResource TeamsDarkTextTertiary}"
+                                                                               Margin="0,6,0,0"/>
+                                                                </StackPanel>
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </StackPanel>
+                                </Border>
                         </StackPanel>
                     </Border>
 
                         <!-- Direct Contacts Section -->
-                        <Border Style="{StaticResource SectionStyle}" Margin="6,0,0,0">
+                        <Border Grid.Column="2" Style="{StaticResource SectionStyle}" Margin="6,0,0,0">
                             <StackPanel>
                                 <Grid Margin="0,0,0,12">
                                     <Grid.ColumnDefinitions>
@@ -530,43 +1163,73 @@
                                                         BorderBrush="{StaticResource TeamsDarkBorder}"
                                            BorderThickness="1"
                                                         CornerRadius="4"
-                                                        Padding="10"
+                                                        Padding="12"
                                                         Margin="0,0,6,6">
                                         <Grid>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="Auto"/>
                                                 <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
-                                                        <Ellipse Grid.Column="0"
-                                                                Width="8"
-                                                             Height="8" 
-                                                                Margin="0,0,8,0"
-                                                             VerticalAlignment="Center"
-                                                             Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"/>
-                                                        <TextBlock Grid.Column="1"
-                                                                  Text="{Binding Name}"
-                                                                  FontWeight="400"
-                                                                  FontSize="13"
-                                                                  Foreground="{StaticResource TeamsDarkText}"
-                                                                  VerticalAlignment="Center"/>
-                                                        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="8,0,0,0">
-                                                            <Button Style="{StaticResource TeamsPrimaryButtonStyle}"
-                                                                    Padding="6,4"
-                                                                    Margin="0,0,4,0"
-                                                                    Command="{Binding DataContext.StartVoiceCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                       CommandParameter="{Binding}"
-                                                                    ToolTip="Voice Call">
-                                                                <materialDesign:PackIcon Kind="Phone" Width="14" Height="14" Foreground="White"/>
+
+                                            <Ellipse Grid.Row="0" Grid.Column="0"
+                                                     Width="8"
+                                                     Height="8" 
+                                                     Margin="0,0,8,0"
+                                                     VerticalAlignment="Center"
+                                                     Fill="{Binding Status, Converter={StaticResource StatusToColorConverter}}"/>
+
+                                            <TextBlock Grid.Row="0" Grid.Column="1"
+                                                       Text="{Binding Name}"
+                                                       FontWeight="400"
+                                                       FontSize="13"
+                                                       Foreground="{StaticResource TeamsDarkText}"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+
+                                            <WrapPanel Grid.Row="1" Grid.ColumnSpan="2"
+                                                       Orientation="Horizontal"
+                                                       HorizontalAlignment="Right"
+                                                       Margin="0,10,0,0">
+                                                <Button Style="{StaticResource TeamsDangerButtonStyle}"
+                                                        Padding="8,6"
+                                                        Margin="0,0,6,0"
+                                                        MinWidth="0"
+                                                        Command="{Binding DataContext.DeleteDirectContactCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip="Delete">
+                                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                        <TextBlock Text="Delete" FontSize="10" FontWeight="600" Foreground="White" HorizontalAlignment="Center"/>
+                                                        <materialDesign:PackIcon Kind="Delete" Width="14" Height="14" Foreground="White" Margin="0,4,0,0" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
                                                 </Button>
-                                                            <Button Style="{StaticResource TeamsPrimaryButtonStyle}"
-                                                                    Padding="6,4"
-                                                                    Command="{Binding DataContext.StartVideoCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                       CommandParameter="{Binding}"
-                                                                    ToolTip="Video Call">
-                                                                <materialDesign:PackIcon Kind="Video" Width="14" Height="14" Foreground="White"/>
+                                                <Button Style="{StaticResource TeamsPrimaryButtonStyle}"
+                                                        Padding="8,6"
+                                                        Margin="0,0,6,0"
+                                                        MinWidth="0"
+                                                        Command="{Binding DataContext.StartVoiceCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip="Voice Call">
+                                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                        <TextBlock Text="Voice" FontSize="10" FontWeight="600" Foreground="White" HorizontalAlignment="Center"/>
+                                                        <materialDesign:PackIcon Kind="Phone" Width="14" Height="14" Foreground="White" Margin="0,4,0,0" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
                                                 </Button>
-                                            </StackPanel>
+                                                <Button Style="{StaticResource TeamsGreenButtonStyle}"
+                                                        Padding="8,6"
+                                                        MinWidth="0"
+                                                        Command="{Binding DataContext.StartVideoCallCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                        CommandParameter="{Binding}"
+                                                        ToolTip="Video Call">
+                                                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                                                        <TextBlock Text="Video" FontSize="10" FontWeight="600" Foreground="White" HorizontalAlignment="Center"/>
+                                                        <materialDesign:PackIcon Kind="Video" Width="14" Height="14" Foreground="White" Margin="0,4,0,0" HorizontalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                            </WrapPanel>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>
@@ -575,49 +1238,10 @@
                     </ScrollViewer>
                         </StackPanel>
                     </Border>
-                    </UniformGrid>
+                    </Grid>
 
                 <!-- Call Status/Info Area -->
-                <Border Grid.Row="0"
-                           Background="{StaticResource TeamsDarkSurface}"
-                           CornerRadius="4"
-                       Padding="50"
-                           BorderBrush="{StaticResource TeamsDarkBorder}"
-                       BorderThickness="1"
-                       VerticalAlignment="Center"
-                       Visibility="{Binding IsInCall, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                            <Border Width="120" 
-                                   Height="120" 
-                                   Background="{StaticResource TeamsBlue}"
-                                   CornerRadius="60"
-                                   Margin="0,0,0,30"
-                               HorizontalAlignment="Center">
-                            <materialDesign:PackIcon Kind="Phone" 
-                                                   Foreground="White"
-                                                   VerticalAlignment="Center"
-                                                   HorizontalAlignment="Center"
-                                                       Width="60"
-                                                       Height="60"/>
-                        </Border>
-                        <TextBlock Text="{Binding CallStatus}"
-                                       FontSize="28"
-                                       FontWeight="600"
-                                   HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TeamsDarkText}"
-                                   Margin="0,0,0,12"/>
-                            <TextBlock FontSize="16"
-                                   HorizontalAlignment="Center"
-                                       Foreground="{StaticResource TeamsDarkTextTertiary}">
-                            <TextBlock.Text>
-                                <MultiBinding StringFormat="{}{0} - {1}">
-                                    <Binding Path="CurrentCall.Type"/>
-                                    <Binding Path="CurrentCall.GroupName"/>
-                                </MultiBinding>
-                            </TextBlock.Text>
-                        </TextBlock>
-                    </StackPanel>
-                </Border>
+                <Border Visibility="Collapsed"/>
                 </Grid>
             </Grid>
         </ScrollViewer>
@@ -628,7 +1252,7 @@
                 BorderBrush="{StaticResource TeamsDarkBorder}"
                 BorderThickness="0,1,0,0"
                 Padding="12,10"
-                       Visibility="{Binding IsInCall, Converter={StaticResource BooleanToVisibilityConverter}}">
+                       Visibility="{Binding IsCallActive, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -664,24 +1288,79 @@
                 
                 <!-- Call Controls -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource TeamsDangerButtonStyle}"
+                            Command="{Binding HangupCommand}"
+                            Margin="0,0,8,0"
+                            Padding="10,6"
+                            ToolTip="End Call">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="PhoneHangup" Width="16" Height="16" Foreground="White" Margin="0,0,6,0"/>
+                            <TextBlock Text="End" Foreground="White" FontSize="12" FontWeight="700"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Margin="0,0,8,0"
+                            Padding="10,6"
+                            ToolTip="Push To Talk"
+                            PreviewMouseLeftButtonDown="PttButton_PreviewMouseLeftButtonDown"
+                            PreviewMouseLeftButtonUp="PttButton_PreviewMouseLeftButtonUp">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource TeamsPrimaryButtonStyle}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentCall.Type}" Value="Direct">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsPttTransmitting}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <TextBlock Text="PTT" Foreground="White" FontSize="12" FontWeight="700"/>
+                    </Button>
+
+                    <Button Command="{Binding ToggleLatchCommand}"
+                            Margin="0,0,8,0"
+                            Padding="10,6"
+                            ToolTip="Latch">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentCall.Type}" Value="Direct">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsPttLatched}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <TextBlock Text="Latch" Foreground="White" FontSize="12" FontWeight="700"/>
+                    </Button>
+
                     <Button Command="{Binding MuteCommand}"
-                            Style="{StaticResource TeamsButtonStyle}"
                             Margin="0,0,8,0"
                             Padding="10,6"
                             ToolTip="Mute">
-                        <materialDesign:PackIcon Kind="MicrophoneOff" Width="18" Height="18" Foreground="{StaticResource TeamsDarkText}"/>
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentCall.IsMuted}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                                        <Setter Property="BorderBrush" Value="Transparent"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                        <materialDesign:PackIcon Kind="MicrophoneOff" Width="18" Height="18" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                     </Button>
-                    <Button Command="{Binding HangupCommand}"
-                            Style="{StaticResource TeamsDangerButtonStyle}"
-                            Padding="12,6"
-                            ToolTip="End Call">
-                            <StackPanel Orientation="Horizontal">
-                            <materialDesign:PackIcon Kind="PhoneHangup" Width="18" Height="18" Foreground="White" Margin="0,0,6,0"/>
-                            <TextBlock Text="End Call" Foreground="White" FontSize="13" FontWeight="600"/>
-                            </StackPanel>
-                        </Button>
                 </StackPanel>
             </Grid>
         </Border>
+
     </Grid>
 </Window>

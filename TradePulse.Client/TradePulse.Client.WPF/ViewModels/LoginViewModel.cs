@@ -50,7 +50,7 @@ public partial class LoginViewModel : ObservableObject
         _configService = configService;
         
         // Load server URL and last username from configuration
-        _serverUrl = _configService.ServerUrl;
+        _serverUrl = ServerUrlHelper.Normalize(_configService.ServerUrl);
         _username = _configService.LastUsername;
     }
 
@@ -69,6 +69,13 @@ public partial class LoginViewModel : ObservableObject
             return;
         }
 
+        if (!ServerUrlHelper.TryNormalize(ServerUrl, out var normalizedUrl, out var urlError))
+        {
+            ErrorMessage = urlError;
+            return;
+        }
+
+        ServerUrl = normalizedUrl;
         IsLoading = true;
         ErrorMessage = string.Empty;
         StatusMessage = "Testing connection...";
@@ -81,7 +88,7 @@ public partial class LoginViewModel : ObservableObject
             })
             {
                 Timeout = TimeSpan.FromSeconds(5),
-                BaseAddress = new Uri(ServerUrl)
+                BaseAddress = new Uri(normalizedUrl)
             };
 
             // Try to connect to the server - test with a simple endpoint
@@ -161,16 +168,18 @@ public partial class LoginViewModel : ObservableObject
 
         try
         {
-            // Update HTTP client base address with the server URL from UI
+            if (!ServerUrlHelper.TryNormalize(ServerUrl, out var normalizedUrl, out var urlError))
+            {
+                ErrorMessage = urlError;
+                return;
+            }
+
+            ServerUrl = normalizedUrl;
             _configService.ServerUrl = ServerUrl;
-            _configService.LastUsername = Username; // Remember last username
+            _configService.LastUsername = Username;
             _configService.Save();
             
-            // Update AuthService's HTTP client base address using reflection
-            // since UpdateBaseAddress is not in the interface
-            var authServiceType = _authService.GetType();
-            var updateMethod = authServiceType.GetMethod("UpdateBaseAddress");
-            updateMethod?.Invoke(_authService, new object[] { ServerUrl });
+            _authService.UpdateBaseAddress(ServerUrl);
 
             StatusMessage = "Connecting to server...";
             

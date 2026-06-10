@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using Newtonsoft.Json;
 
 namespace TradePulse.Client.Core.Services;
 
@@ -134,43 +135,47 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
 
     private void OnSocketAudioData(object data)
     {
+        // Cheap bail-out before any parsing: this runs per audio frame (~50/sec).
+        if (string.IsNullOrWhiteSpace(_currentCallId))
+        {
+            return;
+        }
+
         try
         {
-            // Parse incoming audio data from Socket.IO
-            // Socket.IO client returns data in various formats, handle both
-            string json;
-            if (data is string str)
+            // Socket.IO payloads arrive as JsonElement on the hot path; raw JSON
+            // strings or other object shapes are rare fallbacks. Extract fields with
+            // a single System.Text.Json pass instead of round-tripping through JToken.
+            string? callId;
+            string? audioDataB64;
+            if (data is JsonElement je)
             {
-                json = str;
+                if (!TryExtractAudioFields(je, out callId, out audioDataB64)) return;
+            }
+            else if (data is string s)
+            {
+                using var doc = JsonDocument.Parse(s);
+                if (!TryExtractAudioFields(doc.RootElement, out callId, out audioDataB64)) return;
             }
             else
             {
-                json = JsonSerializer.Serialize(data);
-            }
-
-            var audioMessage = JsonSerializer.Deserialize<AudioMessage>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            if (audioMessage == null || string.IsNullOrEmpty(audioMessage.CallId))
-            {
-                return;
+                using var doc = JsonDocument.Parse(JsonConvert.SerializeObject(data));
+                if (!TryExtractAudioFields(doc.RootElement, out callId, out audioDataB64)) return;
             }
 
             // Only process audio for current call
-            if (audioMessage.CallId != _currentCallId)
+            if (string.IsNullOrWhiteSpace(callId) ||
+                !string.Equals(callId, _currentCallId, StringComparison.OrdinalIgnoreCase))
             {
                 return;
             }
 
-            // Decode base64 audio data
-            if (string.IsNullOrEmpty(audioMessage.AudioData))
+            if (string.IsNullOrWhiteSpace(audioDataB64))
             {
                 return;
             }
 
-            var audioBytes = Convert.FromBase64String(audioMessage.AudioData);
+            var audioBytes = Convert.FromBase64String(audioDataB64);
 
             // Play audio through NAudio
             _ = Task.Run(async () =>
@@ -192,6 +197,45 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
         }
     }
 
+    private static bool TryExtractAudioFields(JsonElement element, out string? callId, out string? audioDataB64)
+    {
+        callId = null;
+        audioDataB64 = null;
+
+        // Unwrap [payload] and "stringified json" wrappers.
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            if (element.GetArrayLength() == 0) return false;
+            element = element[0];
+        }
+
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            var inner = element.GetString();
+            if (string.IsNullOrWhiteSpace(inner)) return false;
+            using var doc = JsonDocument.Parse(inner);
+            return TryExtractAudioFields(doc.RootElement, out callId, out audioDataB64);
+        }
+
+        if (element.ValueKind != JsonValueKind.Object) return false;
+
+        foreach (var prop in element.EnumerateObject())
+        {
+            if (callId is null && string.Equals(prop.Name, "callId", StringComparison.OrdinalIgnoreCase))
+            {
+                callId = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() : prop.Value.ToString();
+            }
+            else if (audioDataB64 is null && string.Equals(prop.Name, "audioData", StringComparison.OrdinalIgnoreCase))
+            {
+                audioDataB64 = prop.Value.ValueKind == JsonValueKind.String ? prop.Value.GetString() : prop.Value.ToString();
+            }
+
+            if (callId is not null && audioDataB64 is not null) break;
+        }
+
+        return true;
+    }
+
     public void Dispose()
     {
         if (!_disposed)
@@ -204,11 +248,5 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
         }
     }
 
-    private class AudioMessage
-    {
-        public string CallId { get; set; } = string.Empty;
-        public string AudioData { get; set; } = string.Empty;
-        public DateTime Timestamp { get; set; }
-    }
 }
 

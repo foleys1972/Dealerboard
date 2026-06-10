@@ -11,16 +11,24 @@ public class StatusToColorConverter : IValueConverter
     {
         if (value is string status)
         {
-            return status?.ToLower() switch
+            var amber = Color.FromRgb(0xFF, 0xAA, 0x44);
+            var color = status?.ToLower() switch
             {
                 "online" => Colors.Green,
+                "available" => Colors.Green,
+                "busy" => amber,
+                "away" => amber,
+                "dnd" => amber,
+                "oncall" => Colors.Red,
+                "in-call" => Colors.Red,
+                "incall" => Colors.Red,
                 "offline" => Colors.Gray,
-                "away" => Colors.Orange,
-                "busy" => Colors.Red,
                 _ => Colors.Gray
             };
+
+            return new SolidColorBrush(color);
         }
-        return Colors.Gray;
+        return new SolidColorBrush(Colors.Gray);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

@@ -8,8 +8,8 @@ namespace TradePulse.Client.Core.Services;
 public class AudioService : IAudioService, IDisposable
 {
     private readonly ILogger<AudioService> _logger;
-    private WaveInEvent? _waveIn;
-    private WaveOutEvent? _waveOut;
+    private WasapiCapture? _waveIn;
+    private WasapiOut? _waveOut;
     private BufferedWaveProvider? _bufferedWaveProvider;
     private readonly WaveFormat _waveFormat = new WaveFormat(48000, 16, 2); // 48kHz, 16-bit, stereo
     private bool _disposed = false;
@@ -17,6 +17,10 @@ public class AudioService : IAudioService, IDisposable
     private float _inputVolume = 1.0f;
     private float _outputVolume = 1.0f;
     private bool _isMuted = false;
+    private int _inputDeviceIndex = 0;
+    private int _outputDeviceIndex = 0;
+    private List<MMDevice> _inputDevices = new();
+    private List<MMDevice> _outputDevices = new();
 
     public bool IsInitialized { get; private set; }
     public bool IsRecording => _isRecording;
@@ -45,6 +49,7 @@ public class AudioService : IAudioService, IDisposable
     }
 
     public event EventHandler<byte[]>? AudioDataAvailable;
+    public event EventHandler<byte[]>? PlaybackAudioAvailable;
     public event EventHandler<float>? AudioLevelChanged;
 
     public AudioService(ILogger<AudioService> logger)
@@ -54,6 +59,11 @@ public class AudioService : IAudioService, IDisposable
 
     public Task InitializeAsync()
     {
+        if (IsInitialized)
+        {
+            return Task.CompletedTask;
+        }
+
         try
         {
             // Initialize audio devices
@@ -77,11 +87,24 @@ public class AudioService : IAudioService, IDisposable
 
         try
         {
-            _waveIn = new WaveInEvent
+            var device = GetSelectedInputDevice();
+            if (device != null)
             {
-                WaveFormat = _waveFormat,
-                BufferMilliseconds = 20 // 20ms buffers for low latency
-            };
+                try
+                {
+                    _waveIn = new WasapiCapture(device);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to start capture on selected input device. Falling back to default device. deviceIndex={Index} device={Device}", _inputDeviceIndex, device.FriendlyName);
+                    _waveIn = new WasapiCapture();
+                }
+            }
+            else
+            {
+                _waveIn = new WasapiCapture();
+            }
+            _waveIn.WaveFormat = _waveFormat;
 
             _waveIn.DataAvailable += OnDataAvailable;
             _waveIn.RecordingStopped += OnRecordingStopped;
@@ -117,20 +140,36 @@ public class AudioService : IAudioService, IDisposable
     {
         try
         {
+            try
+            {
+                PlaybackAudioAvailable?.Invoke(this, audioData);
+            }
+            catch (Exception ex)
+            {
+                // A failing subscriber (e.g. recording sink) must not kill playback,
+                // but it must be visible — silent drops here are undiagnosable.
+                _logger.LogError(ex, "PlaybackAudioAvailable subscriber threw; playback continues");
+            }
+
             if (_waveOut == null)
             {
-                _waveOut = new WaveOutEvent
-                {
-                    Volume = _outputVolume
-                };
+                var device = GetSelectedOutputDevice();
+                _waveOut = device != null
+                    ? new WasapiOut(device, AudioClientShareMode.Shared, true, 20)
+                    : new WasapiOut(AudioClientShareMode.Shared, true, 20);
 
                 _bufferedWaveProvider = new BufferedWaveProvider(_waveFormat)
                 {
                     BufferLength = _waveFormat.AverageBytesPerSecond, // 1 second buffer
-                    DiscardOnBufferOverflow = true
+                    DiscardOnBufferOverflow = true,
+                    // Ensure reads always return full buffers (pads with zeros on underrun)
+                    // so the output device doesn't stop/restart and pop/click when audio resumes.
+                    ReadFully = true
                 };
 
                 _waveOut.Init(_bufferedWaveProvider);
+                _waveOut.Volume = _outputVolume;
+                _logger.LogInformation("Audio playback initialized. deviceIndex={Index} device={Device}", _outputDeviceIndex, device?.FriendlyName ?? "<default>");
             }
 
             if (_bufferedWaveProvider != null)
@@ -141,6 +180,7 @@ public class AudioService : IAudioService, IDisposable
             if (_waveOut.PlaybackState != PlaybackState.Playing)
             {
                 _waveOut.Play();
+                _logger.LogInformation("Audio playback started. volume={Volume}", _outputVolume);
             }
         }
         catch (Exception ex)
@@ -153,6 +193,8 @@ public class AudioService : IAudioService, IDisposable
 
     public Task SetInputDeviceAsync(int deviceIndex)
     {
+        _inputDeviceIndex = Math.Max(0, deviceIndex);
+
         // Stop current recording if active
         if (IsRecording)
         {
@@ -165,6 +207,8 @@ public class AudioService : IAudioService, IDisposable
 
     public Task SetOutputDeviceAsync(int deviceIndex)
     {
+        _outputDeviceIndex = Math.Max(0, deviceIndex);
+
         // Stop current playback if active
         if (_waveOut != null)
         {
@@ -184,17 +228,17 @@ public class AudioService : IAudioService, IDisposable
         try
         {
             var enumerator = new MMDeviceEnumerator();
-            var captureDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
-            
-            int index = 0;
-            foreach (var device in captureDevices)
+            _inputDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).ToList();
+
+            for (int i = 0; i < _inputDevices.Count; i++)
             {
+                var device = _inputDevices[i];
                 devices.Add(new AudioDevice
                 {
-                    Index = index++,
+                    Index = i,
                     Name = device.FriendlyName,
-                    Channels = 2, // Default stereo
-                    SampleRate = 48000 // Default
+                    Channels = _waveFormat.Channels,
+                    SampleRate = _waveFormat.SampleRate
                 });
             }
         }
@@ -213,17 +257,17 @@ public class AudioService : IAudioService, IDisposable
         try
         {
             var enumerator = new MMDeviceEnumerator();
-            var renderDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-            
-            int index = 0;
-            foreach (var device in renderDevices)
+            _outputDevices = enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
+
+            for (int i = 0; i < _outputDevices.Count; i++)
             {
+                var device = _outputDevices[i];
                 devices.Add(new AudioDevice
                 {
-                    Index = index++,
+                    Index = i,
                     Name = device.FriendlyName,
-                    Channels = 2, // Default stereo
-                    SampleRate = 48000 // Default
+                    Channels = _waveFormat.Channels,
+                    SampleRate = _waveFormat.SampleRate
                 });
             }
         }
@@ -237,13 +281,27 @@ public class AudioService : IAudioService, IDisposable
 
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
-        if (_isMuted || e.BytesRecorded == 0)
+        if (e.BytesRecorded == 0)
         {
             return;
         }
 
-        var audioData = new byte[e.BytesRecorded];
-        Array.Copy(e.Buffer, e.BytesRecorded, audioData, 0, e.BytesRecorded);
+        var bytesToCopy = Math.Min(e.BytesRecorded, e.Buffer?.Length ?? 0);
+        if (bytesToCopy <= 0)
+        {
+            return;
+        }
+
+        var audioData = new byte[bytesToCopy];
+
+        if (_isMuted)
+        {
+            AudioLevelChanged?.Invoke(this, 0f);
+            AudioDataAvailable?.Invoke(this, audioData);
+            return;
+        }
+
+        Array.Copy(e.Buffer, 0, audioData, 0, bytesToCopy);
 
         // Apply input volume
         if (_inputVolume < 1.0f)
@@ -267,7 +325,7 @@ public class AudioService : IAudioService, IDisposable
 
     private void ApplyVolume(byte[] audioData, float volume)
     {
-        for (int i = 0; i < audioData.Length; i += 2)
+        for (int i = 0; i + 1 < audioData.Length; i += 2)
         {
             short sample = BitConverter.ToInt16(audioData, i);
             sample = (short)(sample * volume);
@@ -308,6 +366,56 @@ public class AudioService : IAudioService, IDisposable
 
             _disposed = true;
         }
+    }
+
+    private MMDevice? GetSelectedInputDevice()
+    {
+        try
+        {
+            if (_inputDevices == null || _inputDevices.Count == 0)
+            {
+                _ = GetInputDevices();
+            }
+            if (_inputDevices != null && _inputDeviceIndex >= 0 && _inputDeviceIndex < _inputDevices.Count)
+            {
+                return _inputDevices[_inputDeviceIndex];
+            }
+        }
+        catch { }
+        return null;
+    }
+
+    private MMDevice? GetSelectedOutputDevice()
+    {
+        try
+        {
+            if (_outputDevices == null || _outputDevices.Count == 0)
+            {
+                _ = GetOutputDevices();
+            }
+
+            // If the user hasn't explicitly selected a device, prefer the OS default.
+            // Index 0 is not reliably the default and is often HDMI/monitor audio.
+            if (_outputDeviceIndex == 0)
+            {
+                try
+                {
+                    var enumerator = new MMDeviceEnumerator();
+                    return enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                }
+                catch
+                {
+                    // Fall back to list-based selection below.
+                }
+            }
+
+            if (_outputDevices != null && _outputDeviceIndex >= 0 && _outputDeviceIndex < _outputDevices.Count)
+            {
+                return _outputDevices[_outputDeviceIndex];
+            }
+        }
+        catch { }
+        return null;
     }
 }
 

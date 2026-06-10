@@ -11,7 +11,7 @@ public class BooleanToColorConverter : IValueConverter
     {
         if (value is bool boolValue)
         {
-            return boolValue ? Colors.Green : Colors.Red;
+            return boolValue ? Colors.Green : Colors.Gray;
         }
         return Colors.Gray;
     }

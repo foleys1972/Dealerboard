@@ -5,13 +5,13 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         mc:Ignorable="d"
-        Title="TradePulse - Login" 
+        Title="TradeCom - Login" 
         Height="700" 
         Width="550"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize"
-        Background="White"
-        materialDesign:ColorZoneAssist.Mode="PrimaryMid">
+        Background="#1b1b1b"
+        FontFamily="Segoe UI">
     <Grid Margin="40">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -20,22 +20,22 @@
 
         <!-- Header with Logo -->
         <StackPanel Grid.Row="0" Margin="0,0,0,40">
-            <materialDesign:PackIcon Kind="Phone" 
-                                     Width="64" 
-                                     Height="64" 
+            <materialDesign:PackIcon Kind="AccountCircle" 
+                                     Width="80" 
+                                     Height="80" 
                                      HorizontalAlignment="Center"
-                                     Foreground="{DynamicResource PrimaryHueMidBrush}"
+                                     Foreground="#0078d4"
                                      Margin="0,0,0,15"/>
-            <TextBlock Text="TradePulse" 
+            <TextBlock Text="TradeCom" 
                        FontSize="42" 
                        FontWeight="Bold"
                        HorizontalAlignment="Center"
-                       Foreground="#1976D2"
-                       Margin="0,0,0,8"/>
+                       Foreground="White"
+                       Margin="0,0,0,10"/>
             <TextBlock Text="Trading Communication Platform" 
                        FontSize="16"
                        HorizontalAlignment="Center"
-                       Foreground="#424242"
+                       Foreground="#B3FFFFFF"
                        Opacity="0.9"/>
         </StackPanel>
 
@@ -46,7 +46,7 @@
                        FontSize="15"
                        FontWeight="SemiBold"
                        Margin="0,0,0,10"
-                       Foreground="#212121"/>
+                       Foreground="#B3FFFFFF"/>
             <Grid Margin="0,0,0,25">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -54,11 +54,14 @@
                 </Grid.ColumnDefinitions>
                 <TextBox Grid.Column="0"
                          x:Name="ServerUrlTextBox"
-                         materialDesign:HintAssist.Hint="https://192.168.1.41:5000"
+                         materialDesign:HintAssist.Hint="https://192.168.1.58:5000"
                          materialDesign:HintAssist.IsFloating="True"
                          FontSize="16"
                          Height="50"
                          Padding="12,0"
+                         Background="#2d2c2c"
+                         Foreground="#ffffff"
+                         BorderBrush="#26FFFFFF"
                          Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
                     <Button Content="Test"
@@ -86,6 +89,9 @@
                      FontSize="18"
                      Height="55"
                      Padding="12,0"
+                     Background="#2d2c2c"
+                     Foreground="#ffffff"
+                     BorderBrush="#26FFFFFF"
                      Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"/>
 
             <!-- Password -->
@@ -96,6 +102,9 @@
                         FontSize="18"
                         Height="55"
                         Padding="12,0"
+                        Background="#2d2c2c"
+                        Foreground="#ffffff"
+                        BorderBrush="#26FFFFFF"
                         PasswordChanged="PasswordBox_PasswordChanged"/>
 
             <!-- Error Message -->
@@ -121,7 +130,7 @@
             <!-- Status Message -->
             <TextBlock Text="{Binding StatusMessage}"
                        FontSize="15"
-                       Foreground="#1976D2"
+                       Foreground="#0078d4"
                        HorizontalAlignment="Center"
                        Margin="0,0,0,20"
                        FontWeight="SemiBold"
@@ -163,7 +172,7 @@
                 </Ellipse>
                 <TextBlock Text="Ready to connect"
                            FontSize="14"
-                           Foreground="#616161"
+                           Foreground="#80FFFFFF"
                            VerticalAlignment="Center"/>
             </StackPanel>
         </StackPanel>

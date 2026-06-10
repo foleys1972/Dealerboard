@@ -9,7 +9,10 @@ TradePulse.Client/
 ├── TradePulse.Client.Core/          # Core business logic
 │   ├── Models/                     # Data models
 │   └── Services/                   # Business services
-├── TradePulse.Client.WPF/          # WPF UI application
+├── TradePulse.Client.WPF/          # WPF UI application (Intercom Client)
+│   ├── Views/                      # XAML views
+│   └── ViewModels/                 # MVVM view models
+├── TradePulse.Dealerboard.Client/  # WPF UI application (Dealerboard Client)
 │   ├── Views/                      # XAML views
 │   └── ViewModels/                 # MVVM view models
 └── TradePulse.Client.Tests/        # Unit tests
@@ -37,17 +40,53 @@ TradePulse.Client/
 
 ## Building
 
+### Intercom Client
+
 ```bash
 cd TradePulse.Client
 dotnet restore
 dotnet build
 ```
 
+### Dealerboard Client
+
+#### Quick Build (Development)
+```bash
+build-dealerboard-quick.bat
+```
+Builds the project without publishing (faster, requires .NET Runtime installed).
+
+#### Debug Build
+```bash
+build-dealerboard-debug.bat
+```
+Builds a debug version with all dependencies (requires .NET Runtime installed).
+
+#### Release Build (Self-Contained Executable)
+```bash
+build-dealerboard.bat
+```
+Builds a self-contained executable that includes the .NET Runtime. This creates a standalone `TradePulseDealerboard.exe` file that can run on any Windows machine without requiring .NET to be installed.
+
+The executable will be created in: `bin\DealerboardRelease\TradePulseDealerboard.exe`
+
 ## Running
 
+### Intercom Client
 ```bash
 cd TradePulse.Client.WPF
 dotnet run
+```
+
+### Dealerboard Client
+```bash
+cd TradePulse.Dealerboard.Client
+dotnet run
+```
+
+Or run the executable directly:
+```bash
+bin\DealerboardRelease\TradePulseDealerboard.exe
 ```
 
 ## Configuration

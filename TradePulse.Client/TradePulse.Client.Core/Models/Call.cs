@@ -29,11 +29,14 @@ public class Call
     public string? TargetName { get; set; }
     public string? GroupId { get; set; }
     public string? GroupName { get; set; }
+    public string? LineName { get; set; }
     public List<string> Participants { get; set; } = new();
+    public List<string> Speakers { get; set; } = new();
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public bool IsMuted { get; set; }
     public bool IsOnHold { get; set; }
     public bool IsMonitoring { get; set; } // For broadcast monitoring
+    public bool EnableVideo { get; set; }
 }
 

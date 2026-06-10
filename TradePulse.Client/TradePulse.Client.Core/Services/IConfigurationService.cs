@@ -7,6 +7,7 @@ public interface IConfigurationService
     int ConnectionTimeout { get; }
     int ReconnectionAttempts { get; }
     int ReconnectionDelay { get; }
+    bool AllowInsecureCertificates { get; set; }
     void Save();
     void Load();
     T? GetValue<T>(string key);

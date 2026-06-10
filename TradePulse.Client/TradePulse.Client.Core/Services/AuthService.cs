@@ -9,11 +9,15 @@ namespace TradePulse.Client.Core.Services;
 public class AuthService : IAuthService
 {
     private readonly ILogger<AuthService> _logger;
-    private readonly HttpClient _httpClient;
+    private readonly HttpClientHandler _httpHandler;
+    private HttpClient _httpClient;
     private readonly ISocketService _socketService;
     private readonly IConfigurationService _configService;
     private User? _currentUser;
     private string? _authToken;
+    private string _apiBaseUrl = string.Empty;
+
+    private CancellationTokenSource? _routingWatcherCts;
 
     public User? CurrentUser => _currentUser;
     public string? AuthToken => _authToken;
@@ -22,30 +26,244 @@ public class AuthService : IAuthService
     public event EventHandler<User>? UserAuthenticated;
     public event EventHandler? UserLoggedOut;
 
-    public AuthService(ILogger<AuthService> logger, HttpClient httpClient, ISocketService socketService, IConfigurationService configService)
+    public AuthService(ILogger<AuthService> logger, ISocketService socketService, IConfigurationService configService)
     {
         _logger = logger;
-        _httpClient = httpClient;
         _socketService = socketService;
         _configService = configService;
-        
-        // Set initial base address from configuration
+        _httpHandler = new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+        };
+        _httpClient = CreateHttpClient();
+
         UpdateBaseAddress(_configService.ServerUrl);
+
+        // Restore last-known subscriber candidates (best-effort)
+        try
+        {
+            var candidates = _configService.GetValue<List<string>>("subscriberServerCandidates");
+            if (candidates != null && candidates.Count > 0)
+            {
+                _socketService.SetServerCandidates(candidates);
+            }
+        }
+        catch { }
+    }
+
+    private void StartRoutingWatcher()
+    {
+        try
+        {
+            _routingWatcherCts?.Cancel();
+            _routingWatcherCts = new CancellationTokenSource();
+            var ct = _routingWatcherCts.Token;
+
+            _ = Task.Run(async () =>
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(20), ct);
+                        if (ct.IsCancellationRequested) break;
+                        if (!IsAuthenticated || string.IsNullOrWhiteSpace(_authToken)) continue;
+
+                        var resp = await SendApiAsync(HttpMethod.Get, "/api/auth/me", cancellationToken: ct);
+                        if (!resp.IsSuccessStatusCode) continue;
+                        var json = await resp.Content.ReadAsStringAsync(ct);
+                        var me = JsonSerializer.Deserialize<MeResponse>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        var newUser = me?.User;
+                        if (newUser == null) continue;
+
+                        // Apply routing updates if recommended subscriber changes.
+                        var prevUrl = _currentUser?.RecommendedSubscriberUrl;
+                        var nextUrl = newUser.RecommendedSubscriberUrl;
+                        if (!string.IsNullOrWhiteSpace(nextUrl) && !string.Equals(prevUrl?.TrimEnd('/'), nextUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase))
+                        {
+                            _logger.LogWarning("Routing change detected mid-session: {Prev} -> {Next}", prevUrl, nextUrl);
+                            ApplyRoutingAndReconnect(newUser);
+                        }
+
+                        // Always keep a fresh user snapshot (settings/flags/etc).
+                        _currentUser = newUser;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // normal
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Routing watcher tick failed");
+                    }
+                }
+            }, ct);
+        }
+        catch { }
+    }
+
+    private void ApplyRoutingAndReconnect(User user)
+    {
+        try
+        {
+            var routedBaseUrl = user?.RecommendedSubscriberUrl;
+            if (string.IsNullOrWhiteSpace(routedBaseUrl)) return;
+            routedBaseUrl = routedBaseUrl.TrimEnd('/');
+
+            var candidates = new List<string>();
+            candidates.Add(routedBaseUrl);
+            if (user?.FailoverSubscriberUrls != null)
+            {
+                foreach (var u in user.FailoverSubscriberUrls)
+                {
+                    if (!string.IsNullOrWhiteSpace(u)) candidates.Add(u.TrimEnd('/'));
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(_configService.ServerUrl))
+            {
+                candidates.Add(_configService.ServerUrl.TrimEnd('/'));
+            }
+
+            candidates = candidates
+                .Where(u => !string.IsNullOrWhiteSpace(u))
+                .Select(u => u.TrimEnd('/'))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _configService.ServerUrl = routedBaseUrl;
+            _configService.SetValue("subscriberServerCandidates", candidates);
+            _configService.Save();
+            UpdateBaseAddress(routedBaseUrl);
+
+            _socketService.SetServerCandidates(candidates);
+
+            // Force reconnect to the new primary.
+            var token = _authToken;
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _socketService.DisconnectAsync();
+                    }
+                    catch { }
+                    try
+                    {
+                        await _socketService.ConnectAsync(routedBaseUrl, token);
+                        if (_currentUser != null)
+                        {
+                            await _socketService.AuthenticateAsync(_currentUser.Id, _currentUser.Username, token);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to reconnect socket after routing change");
+                    }
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to apply routing change");
+        }
     }
 
     public void UpdateBaseAddress(string serverUrl)
     {
-        try
+        var cleanUrl = ServerUrlHelper.Normalize(serverUrl);
+        if (!Uri.TryCreate(cleanUrl, UriKind.Absolute, out _))
         {
-            // Ensure URL doesn't end with a slash to avoid double slashes
-            var cleanUrl = serverUrl.TrimEnd('/');
-            _httpClient.BaseAddress = new Uri(cleanUrl);
-            _logger.LogInformation("HTTP client base address updated to: {Url}", cleanUrl);
+            _logger.LogError("Invalid server URL: {Url}", serverUrl);
+            return;
         }
-        catch (Exception ex)
+
+        if (string.Equals(_apiBaseUrl, cleanUrl, StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogError(ex, "Failed to update base address: {Url}", serverUrl);
+            return;
         }
+
+        var previousAuth = _httpClient.DefaultRequestHeaders.Authorization;
+        _apiBaseUrl = cleanUrl;
+        _httpClient.Dispose();
+        _httpClient = CreateHttpClient();
+        if (previousAuth != null)
+        {
+            _httpClient.DefaultRequestHeaders.Authorization = previousAuth;
+        }
+
+        _logger.LogInformation("API base URL set to: {Url}", cleanUrl);
+    }
+
+    private HttpClient CreateHttpClient()
+    {
+        return new HttpClient(_httpHandler, disposeHandler: false)
+        {
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+    }
+
+    private Task<HttpResponseMessage> SendApiAsync(
+        HttpMethod method,
+        string path,
+        HttpContent? content = null,
+        CancellationToken cancellationToken = default)
+    {
+        var request = new HttpRequestMessage(method, BuildApiUri(path))
+        {
+            Content = content,
+        };
+        return _httpClient.SendAsync(request, cancellationToken);
+    }
+
+    private Uri BuildApiUri(string path)
+    {
+        var baseUrl = ServerUrlHelper.Normalize(
+            !string.IsNullOrWhiteSpace(_apiBaseUrl) ? _apiBaseUrl : _configService.ServerUrl);
+        if (string.IsNullOrWhiteSpace(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out _))
+        {
+            throw new InvalidOperationException("Server URL is not configured or invalid");
+        }
+
+        var normalizedPath = path.StartsWith('/') ? path : $"/{path}";
+        return new Uri($"{baseUrl}{normalizedPath}");
+    }
+
+    public string GetActiveServerUrl() => ResolveActiveServerUrl();
+
+    private string ResolveActiveServerUrl()
+    {
+        if (!string.IsNullOrWhiteSpace(_apiBaseUrl))
+        {
+            return _apiBaseUrl.TrimEnd('/');
+        }
+
+        return ServerUrlHelper.Normalize(_configService.ServerUrl);
+    }
+
+    private static bool ShouldPreferLoginServerUrl(string loginServerUrl, string routedServerUrl)
+    {
+        if (string.IsNullOrWhiteSpace(loginServerUrl))
+        {
+            return false;
+        }
+
+        if (!Uri.TryCreate(loginServerUrl, UriKind.Absolute, out var login))
+        {
+            return false;
+        }
+
+        if (!Uri.TryCreate(routedServerUrl, UriKind.Absolute, out var routed))
+        {
+            return false;
+        }
+
+        var routedIsLoopback = routed.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+            || routed.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+        var loginIsRemote = !login.Host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase)
+            && !login.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+
+        return routedIsLoopback && loginIsRemote;
     }
 
     public async Task<bool> LoginAsync(string username, string password)
@@ -53,6 +271,11 @@ public class AuthService : IAuthService
         _logger.LogInformation("=== LoginAsync called for username: {Username} ===", username);
         try
         {
+            if (!string.IsNullOrWhiteSpace(_configService.ServerUrl))
+            {
+                UpdateBaseAddress(_configService.ServerUrl);
+            }
+
             var loginRequest = new
             {
                 username,
@@ -62,20 +285,14 @@ public class AuthService : IAuthService
             var json = JsonSerializer.Serialize(loginRequest);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var loginUrl = _httpClient.BaseAddress?.ToString().TrimEnd('/') + "/api/auth/login";
+            var loginUrl = BuildApiUri("/api/auth/login").ToString();
             _logger.LogInformation("Attempting login to: {LoginUrl}", loginUrl);
             _logger.LogInformation("Username: {Username}", username);
             
             HttpResponseMessage? response = null;
             try
             {
-                // Ensure no double slashes in the URL
-                var apiPath = "/api/auth/login";
-                if (_httpClient.BaseAddress != null && _httpClient.BaseAddress.ToString().EndsWith("/"))
-                {
-                    apiPath = apiPath.TrimStart('/');
-                }
-                response = await _httpClient.PostAsync(apiPath, content);
+                response = await SendApiAsync(HttpMethod.Post, "/api/auth/login", content);
             }
             catch (HttpRequestException httpEx)
             {
@@ -95,7 +312,7 @@ public class AuthService : IAuthService
                 
                 if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    throw new Exception($"Server endpoint not found. Please check the server URL: {_httpClient.BaseAddress}");
+                    throw new Exception($"Server endpoint not found. Please check the server URL: {GetActiveServerUrl()}");
                 }
                 else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                 {
@@ -147,6 +364,72 @@ public class AuthService : IAuthService
 
             _authToken = loginResponse.Token;
             _currentUser = loginResponse.User;
+
+            // Enterprise routing: if the login payload includes an assigned homeserver,
+            // switch API + Socket.IO base to that server (subscriber) for all subsequent calls.
+            try
+            {
+                var routedBaseUrl = _currentUser?.RecommendedSubscriberUrl;
+                if (string.IsNullOrWhiteSpace(routedBaseUrl))
+                {
+                    routedBaseUrl = _currentUser?.MatrixHomeserver?.BaseUrl;
+                }
+                if (!string.IsNullOrWhiteSpace(routedBaseUrl))
+                {
+                    var loginServerUrl = ServerUrlHelper.Normalize(_configService.ServerUrl);
+                    routedBaseUrl = ServerUrlHelper.Normalize(routedBaseUrl);
+                    if (ShouldPreferLoginServerUrl(loginServerUrl, routedBaseUrl))
+                    {
+                        _logger.LogInformation(
+                            "Keeping login server URL {LoginUrl} instead of routed subscriber URL {RoutedUrl}",
+                            loginServerUrl,
+                            routedBaseUrl);
+                        routedBaseUrl = loginServerUrl;
+                    }
+
+                    _logger.LogInformation("Routing client to homeserver baseUrl: {BaseUrl}", routedBaseUrl);
+
+                    try
+                    {
+                        var candidates = new List<string>();
+                        candidates.Add(routedBaseUrl);
+                        if (_currentUser?.FailoverSubscriberUrls != null)
+                        {
+                            foreach (var u in _currentUser.FailoverSubscriberUrls)
+                            {
+                                if (!string.IsNullOrWhiteSpace(u)) candidates.Add(u.TrimEnd('/'));
+                            }
+                        }
+
+                        // Include the current configured ServerUrl as a last-resort fallback.
+                        if (!string.IsNullOrWhiteSpace(_configService.ServerUrl))
+                        {
+                            candidates.Add(_configService.ServerUrl.TrimEnd('/'));
+                        }
+
+                        candidates = candidates
+                            .Where(u => !string.IsNullOrWhiteSpace(u))
+                            .Select(u => u.TrimEnd('/'))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToList();
+
+                        _configService.SetValue("subscriberServerCandidates", candidates);
+                        _socketService.SetServerCandidates(candidates);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to configure socket server candidates");
+                    }
+
+                    _configService.ServerUrl = routedBaseUrl;
+                    _configService.Save();
+                    UpdateBaseAddress(routedBaseUrl);
+                }
+            }
+            catch (Exception routeEx)
+            {
+                _logger.LogWarning(routeEx, "Failed to apply homeserver routing; continuing with configured ServerUrl={ServerUrl}", _configService.ServerUrl);
+            }
             
             // Log user configuration for debugging
             if (_currentUser != null)
@@ -162,6 +445,8 @@ public class AuthService : IAuthService
             // Set auth header for future requests
             _httpClient.DefaultRequestHeaders.Authorization = 
                 new AuthenticationHeaderValue("Bearer", _authToken);
+
+            StartRoutingWatcher();
             
             _logger.LogInformation("Auth token set in AuthService - Token length: {TokenLength}, IsAuthenticated: {IsAuthenticated}", 
                 _authToken?.Length ?? 0, IsAuthenticated);
@@ -170,7 +455,7 @@ public class AuthService : IAuthService
             // Use a timeout to prevent hanging on slow connections, but continue in background
             try
             {
-                var serverUrl = _httpClient.BaseAddress?.ToString() ?? _configService.ServerUrl;
+                var serverUrl = GetActiveServerUrl();
                 
                 // Start connection in background - don't block login
                 _ = Task.Run(async () =>
@@ -249,7 +534,7 @@ public class AuthService : IAuthService
                 new AuthenticationHeaderValue("Bearer", _authToken);
 
             // Verify token by getting user info
-            var response = await _httpClient.GetAsync("/api/auth/me");
+            var response = await SendApiAsync(HttpMethod.Get, "/api/auth/me");
             
             if (!response.IsSuccessStatusCode)
             {
@@ -258,10 +543,11 @@ public class AuthService : IAuthService
             }
 
             var responseContent = await response.Content.ReadAsStringAsync();
-            _currentUser = JsonSerializer.Deserialize<User>(responseContent, new JsonSerializerOptions
+            var me = JsonSerializer.Deserialize<MeResponse>(responseContent, new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true
             });
+            _currentUser = me?.User;
 
             if (_currentUser == null)
             {
@@ -269,12 +555,14 @@ public class AuthService : IAuthService
             }
 
             // Connect socket and authenticate
-            var serverUrl = _httpClient.BaseAddress?.ToString() ?? _configService.ServerUrl;
+            var serverUrl = GetActiveServerUrl();
             await _socketService.ConnectAsync(serverUrl, _authToken);
             await _socketService.AuthenticateAsync(
                 _currentUser.Id,
                 _currentUser.Username,
                 _authToken);
+
+            StartRoutingWatcher();
 
             _logger.LogInformation("User authenticated with token: {Username}", _currentUser.Username);
             UserAuthenticated?.Invoke(this, _currentUser);
@@ -292,6 +580,7 @@ public class AuthService : IAuthService
     {
         try
         {
+            try { _routingWatcherCts?.Cancel(); } catch { }
             await _socketService.DisconnectAsync();
             
             _httpClient.DefaultRequestHeaders.Authorization = null;
@@ -311,7 +600,7 @@ public class AuthService : IAuthService
     {
         try
         {
-            var response = await _httpClient.PostAsync("/api/auth/refresh", null);
+            var response = await SendApiAsync(HttpMethod.Post, "/api/auth/refresh");
             
             if (!response.IsSuccessStatusCode)
             {
@@ -348,6 +637,12 @@ public class AuthService : IAuthService
         public string Token { get; set; } = string.Empty;
         public User? User { get; set; }
         public string? ExpiresIn { get; set; }
+    }
+
+    private class MeResponse
+    {
+        public bool Success { get; set; }
+        public User? User { get; set; }
     }
 }
 

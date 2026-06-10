@@ -40,8 +40,12 @@ async Task Test(string name, Action<SocketIOOptions> configure)
     configure(options);
 
     var client = new SocketIOClient.SocketIO(url, options);
-    client.HttpClient = CreateDevHttpClient();
-    client.ClientWebSocketProvider = CreateDevWebSocket;
+    var strict = string.Equals(Environment.GetEnvironmentVariable("TRADEPULSE_STRICT_TLS"), "true", StringComparison.OrdinalIgnoreCase);
+    if (!strict)
+    {
+        client.HttpClient = CreateDevHttpClient();
+        client.ClientWebSocketProvider = CreateDevWebSocket;
+    }
 
     var sw = System.Diagnostics.Stopwatch.StartNew();
     try

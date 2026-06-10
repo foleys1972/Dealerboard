@@ -2251,8 +2251,8 @@ public partial class MainViewModel : ObservableObject
                     {
                         Id = $"slot-{slot.Index}",
                         ContactUserId = contactUserId,
-                        Name = !string.IsNullOrWhiteSpace(directory?.DisplayName)
-                            ? directory!.DisplayName
+                        Name = !string.IsNullOrWhiteSpace(directory?.Name)
+                            ? directory!.Name
                             : (!string.IsNullOrWhiteSpace(directory?.Username) ? directory!.Username! : contactUserId),
                         Uri = directory?.SipUri,
                         Extension = directory?.Extension,

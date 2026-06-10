@@ -1,3 +1,6 @@
+/**
+ * @deprecated Superseded by AppSwitcher + PageShell. Kept for reference only.
+ */
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
@@ -21,6 +24,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useWebRTCStore } from '../../stores/webrtcStore';
 import { useSocket } from '../../hooks/useSocket';
 import { Button, Badge, Flex, Spacer } from '../../styles/GlobalStyle';
+import { PRODUCT_NAME } from '../../config/brand';
 
 const LayoutContainer = styled.div`
   display: flex;
@@ -419,7 +423,7 @@ const Layout = ({ children }) => {
           <LogoWithStatus>
             <Logo>
               <FiMic />
-              TradePulse
+              {PRODUCT_NAME}
             </Logo>
             <StatusDot $isOnline={socketConnected} />
           </LogoWithStatus>
@@ -504,7 +508,7 @@ const Layout = ({ children }) => {
               <FiMenu />
             </MenuButton>
             <PageTitle>
-              {navigationItems.find(item => item.path === location.pathname)?.label || 'TradePulse'}
+              {navigationItems.find(item => item.path === location.pathname)?.label || PRODUCT_NAME}
             </PageTitle>
             <ConnectionStatus 
               $isOnline={socketConnected} 

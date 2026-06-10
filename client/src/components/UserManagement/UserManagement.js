@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import styled from 'styled-components';
+import styled, { useTheme } from 'styled-components';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../utils/api';
 import { 
@@ -8,6 +8,7 @@ import {
   FiUserPlus, 
   FiUserX, 
   FiEdit, 
+  FiGrid,
   FiSearch,
   FiFilter,
   FiRefreshCw,
@@ -27,6 +28,9 @@ import {
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { useAuthStore } from '../../stores/authStore';
 import { useSocket } from '../../hooks/useSocket';
+
+import { getUserClientAccess } from '../../utils/clientAccess';
+import UserButtonLayout from '../UserButtonLayout/UserButtonLayout';
 import { 
   Card, 
   Button, 
@@ -103,6 +107,49 @@ const UserCard = styled(Card)`
     box-shadow: ${props => props.theme.shadows.md};
     transform: translateY(-2px);
   }
+`;
+
+const UsersTableCard = styled(Card)`
+  padding: ${props => props.theme.spacing.md};
+  overflow: auto;
+`;
+
+const UsersTable = styled.table`
+  width: 100%;
+  border-collapse: collapse;
+`;
+
+const UsersTh = styled.th`
+  text-align: left;
+  padding: ${props => props.theme.spacing.sm};
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: ${props => props.theme.colors.textSecondary};
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+  white-space: nowrap;
+`;
+
+const UsersTr = styled.tr.withConfig({
+  shouldForwardProp: (prop) => prop !== '$selected'
+})`
+  cursor: pointer;
+  background: ${props => props.$selected ? props.theme.colors.surfaceElevated : 'transparent'};
+
+  &:hover {
+    background: ${props => props.theme.colors.surfaceElevated};
+  }
+`;
+
+const UsersTd = styled.td`
+  padding: ${props => props.theme.spacing.sm};
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+  vertical-align: middle;
+`;
+
+const Muted = styled.div`
+  color: ${props => props.theme.colors.textSecondary};
+  font-size: 0.8rem;
 `;
 
 const UserHeader = styled.div`
@@ -243,10 +290,24 @@ const UserManagement = () => {
   const [showEditUser, setShowEditUser] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
   const [showUserActions, setShowUserActions] = useState(null);
+  const [showButtonLayout, setShowButtonLayout] = useState(false);
+  const [buttonLayoutAccess, setButtonLayoutAccess] = useState(null);
   
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuthStore();
   const { socket } = useSocket();
+
+  // Fetch locations (for assigning users)
+  const { data: locations } = useQuery(
+    'locations',
+    async () => {
+      const resp = await api.get('/api/locations');
+      return resp.data?.locations || [];
+    },
+    {
+      retry: 1,
+    }
+  );
 
   // Listen to presence-update events to update user status in real-time
   useEffect(() => {
@@ -483,8 +544,8 @@ const UserManagement = () => {
   };
 
   const handleUserClick = (user) => {
-    setSelectedUser(user);
-    setShowUserDetails(true);
+    setEditingUser(user);
+    setShowEditUser(true);
   };
 
   const handleEditUser = (user) => {
@@ -549,7 +610,10 @@ const UserManagement = () => {
   }, [users, filterRole, filterSource, filterStatus, searchTerm]);
 
   // Check if user is admin
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin =
+    currentUser?.role === 'platform_admin' ||
+    currentUser?.role === 'tenant_admin' ||
+    currentUser?.role === 'admin';
 
   if (usersLoading) {
     return (
@@ -690,133 +754,113 @@ const UserManagement = () => {
         </Card>
       )}
 
-      <UsersGrid columns={3}>
+      <UsersTableCard>
         {filteredUsers.length > 0 ? (
-          filteredUsers.map((user) => (
-            <UserCard key={user.id || user.userId} onClick={() => handleUserClick(user)}>
-              <UserHeader>
-                <Flex align="center">
-                  <UserAvatar>
-                    {user.firstName?.charAt(0) || user.username?.charAt(0)?.toUpperCase() || 'U'}
-                  </UserAvatar>
-                  <UserInfo>
-                    <UserName>{user.displayName || user.name || user.username || 'Unknown User'}</UserName>
-                    <UserEmail>{user.email || 'No email'}</UserEmail>
-                  </UserInfo>
-                </Flex>
-                <UserRole variant={user.role === 'admin' ? 'error' : user.role === 'trader' ? 'warning' : 'info'}>
-                  {user.role || 'user'}
-                </UserRole>
-              </UserHeader>
+          <UsersTable>
+            <thead>
+              <tr>
+                <UsersTh>User</UsersTh>
+                <UsersTh>Role</UsersTh>
+                <UsersTh>Status</UsersTh>
+                <UsersTh>Source</UsersTh>
+                <UsersTh>Clients</UsersTh>
+                <UsersTh>Actions</UsersTh>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredUsers.map((user) => {
+                const id = user.id || user.userId;
+                const displayName = user.displayName || user.name || user.username || 'Unknown User';
+                const isOnline = user.status === 'online' || user.isOnline;
+                const { intercomEnabled, dealerboardEnabled } = getUserClientAccess(user);
 
-              <UserStatus>
-                <Badge variant={user.isActive !== false ? 'success' : 'secondary'}>
-                  {user.isActive !== false ? 'Active' : 'Inactive'}
-                </Badge>
-                <Badge variant="secondary">
-                  {user.source === 'active_directory' ? 'AD' : 'Local'}
-                </Badge>
-                {/* Online/Offline Status Indicator */}
-                <Badge 
-                  variant={user.status === 'online' || user.isOnline ? 'success' : 'secondary'}
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '4px',
-                    marginLeft: '8px'
-                  }}
-                >
-                  <FiRadio 
-                    style={{ 
-                      fontSize: '12px',
-                      color: (user.status === 'online' || user.isOnline) ? '#10b981' : '#6b7280'
-                    }} 
-                  />
-                  {(user.status === 'online' || user.isOnline) ? 'Online' : 'Offline'}
-                </Badge>
-              </UserStatus>
+                return (
+                  <UsersTr
+                    key={id}
+                    $selected={editingUser?.id === id}
+                    onClick={() => handleUserClick(user)}
+                  >
+                    <UsersTd>
+                      <div style={{ fontWeight: 600 }}>{displayName}</div>
+                      <Muted>{user.email || user.username || id}</Muted>
+                    </UsersTd>
+                    <UsersTd>
+                      <Badge variant={user.role === 'admin' ? 'error' : user.role === 'trader' ? 'warning' : 'info'}>
+                        {user.role || 'user'}
+                      </Badge>
+                    </UsersTd>
+                    <UsersTd>
+                      <Flex align="center" gap="0.5rem">
+                        <Badge variant={user.isActive !== false ? 'success' : 'secondary'}>
+                          {user.isActive !== false ? 'Active' : 'Inactive'}
+                        </Badge>
+                        <Badge variant={isOnline ? 'success' : 'secondary'} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <FiRadio style={{ fontSize: '12px' }} />
+                          {isOnline ? 'Online' : 'Offline'}
+                        </Badge>
+                      </Flex>
+                    </UsersTd>
+                    <UsersTd>
+                      <Badge variant="secondary">
+                        {user.source === 'active_directory' ? 'AD' : 'Local'}
+                      </Badge>
+                    </UsersTd>
+                    <UsersTd>
+                      <Flex align="center" gap="0.5rem" wrap>
+                        {intercomEnabled && <Badge variant="info">Intercom</Badge>}
+                        {dealerboardEnabled && <Badge variant="info">Dealerboard</Badge>}
+                        {!intercomEnabled && !dealerboardEnabled && (
+                          <Muted style={{ fontSize: '0.85rem' }}>None</Muted>
+                        )}
+                      </Flex>
+                    </UsersTd>
+                    <UsersTd>
+                      <Flex align="center" gap="0.5rem" style={{ position: 'relative' }}>
+                        <Button
+                          variant="primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditUser(user);
+                          }}
+                        >
+                          <FiEdit />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleUserActions(id);
+                          }}
+                        >
+                          <FiMoreVertical />
+                        </Button>
 
-              <UserDetails>
-                {user.title && (
-                  <UserDetail>
-                    <UserDetailIcon>
-                      <FiShield />
-                    </UserDetailIcon>
-                    <span>{user.title}</span>
-                  </UserDetail>
-                )}
-                {user.department && (
-                  <UserDetail>
-                    <UserDetailIcon>
-                      <FiMapPin />
-                    </UserDetailIcon>
-                    <span>{user.department}</span>
-                  </UserDetail>
-                )}
-                {user.phone && (
-                  <UserDetail>
-                    <UserDetailIcon>
-                      <FiPhone />
-                    </UserDetailIcon>
-                    <span>{user.phone}</span>
-                  </UserDetail>
-                )}
-              </UserDetails>
-
-              <UserActions>
-                <UserActionButton
-                  variant="primary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleUserClick(user);
-                  }}
-                >
-                  <FiEdit />
-                  Edit
-                </UserActionButton>
-                
-                <UserActionIcon
-                  variant="secondary"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleToggleUserActions(user.id);
-                  }}
-                >
-                  <FiMoreVertical />
-                </UserActionIcon>
-                
-                {/* User Actions Dropdown */}
-                {showUserActions === user.id && (
-                  <UserActionsDropdown
-                    user={user}
-                    onEdit={handleEditUser}
-                    onDelete={handleDeleteUser}
-                    onToggleStatus={handleToggleUserStatus}
-                    onClose={() => setShowUserActions(null)}
-                  />
-                )}
-              </UserActions>
-            </UserCard>
-          ))
+                        {showUserActions === id && (
+                          <UserActionsDropdown
+                            user={user}
+                            onEdit={handleEditUser}
+                            onDelete={handleDeleteUser}
+                            onToggleStatus={handleToggleUserStatus}
+                            onClose={() => setShowUserActions(null)}
+                          />
+                        )}
+                      </Flex>
+                    </UsersTd>
+                  </UsersTr>
+                );
+              })}
+            </tbody>
+          </UsersTable>
         ) : (
-          <EmptyState>
-            <EmptyIcon>
-              <FiUsers />
-            </EmptyIcon>
-            <EmptyText>No users found</EmptyText>
-            <EmptySubtext>Try adjusting your search criteria</EmptySubtext>
-          </EmptyState>
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div style={{ fontSize: '1.125rem', marginBottom: '0.5rem' }}>No users found</div>
+            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.875rem' }}>
+              Try adjusting your search criteria
+            </div>
+          </div>
         )}
-      </UsersGrid>
-
-      {/* User Details Modal */}
-      {showUserDetails && selectedUser && (
-        <UserDetailsModal
-          user={selectedUser}
-          onClose={() => setShowUserDetails(false)}
-          onEdit={handleEditUser}
-        />
-      )}
+      </UsersTableCard>
 
       {/* Add User Modal */}
       {showAddUser && (
@@ -834,11 +878,18 @@ const UserManagement = () => {
       {showEditUser && editingUser && (
         <EditUserModal
           user={editingUser}
+          locations={locations || []}
           onSubmit={(userData) => {
             updateUserMutation.mutate({
               userId: editingUser.id,
               userData
             });
+          }}
+          onOpenButtonLayout={(access) => {
+            setButtonLayoutAccess(access);
+            setShowEditUser(false);
+            setShowUserActions(null);
+            setShowButtonLayout(true);
           }}
           onClose={() => {
             setShowEditUser(false);
@@ -846,6 +897,52 @@ const UserManagement = () => {
           }}
         />
       )}
+
+      {/* Button Layout Modal */}
+      {showButtonLayout && editingUser && (() => {
+        const access = buttonLayoutAccess || getUserClientAccess(editingUser);
+        return (
+        <Modal>
+          <ModalContent style={{ width: '95vw', maxWidth: '920px', height: '88vh' }}>
+            <ModalHeader>
+              <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <FiGrid />
+                Button Layout: {editingUser.displayName || editingUser.name || editingUser.username}
+              </h2>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setShowButtonLayout(false);
+                  setButtonLayoutAccess(null);
+                }}
+                type="button"
+              >
+                <FiX />
+              </Button>
+            </ModalHeader>
+            <ModalBody style={{ height: '100%', minHeight: 0 }}>
+              <div style={{ height: '100%', minHeight: 0 }}>
+                <UserButtonLayout
+                  key={`${editingUser.userId || editingUser.id}-${access.intercomEnabled}-${access.dealerboardEnabled}`}
+                  userId={editingUser.userId || editingUser.id}
+                  intercomEnabled={access.intercomEnabled}
+                  dealerboardEnabled={access.dealerboardEnabled}
+                  onSave={() => {
+                    setShowButtonLayout(false);
+                    setButtonLayoutAccess(null);
+                    queryClient.invalidateQueries(['users']);
+                  }}
+                  onCancel={() => {
+                    setShowButtonLayout(false);
+                    setButtonLayoutAccess(null);
+                  }}
+                />
+              </div>
+            </ModalBody>
+          </ModalContent>
+        </Modal>
+        );
+      })()}
     </UserManagementContainer>
   );
 };
@@ -987,12 +1084,15 @@ const UserDetailsModal = ({ user, onClose, onEdit }) => {
 
 // Add User Modal Component
 const AddUserModal = ({ onSubmit, onClose }) => {
+  const theme = useTheme();
   const [formData, setFormData] = useState({
     username: '',
     email: '',
     firstName: '',
     lastName: '',
     password: '',
+    companyName: '',
+    country: '',
     role: 'user',
     source: 'local',
     intercomEnabled: true,
@@ -1071,6 +1171,32 @@ const AddUserModal = ({ onSubmit, onClose }) => {
                   required
                 />
               </div>
+
+              <div>
+                <label>Location</label>
+                <Input
+                  value="Tenantless"
+                  disabled
+                />
+              </div>
+
+              <div>
+                <label>Company</label>
+                <Input
+                  name="companyName"
+                  value={formData.companyName}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div>
+                <label>Country</label>
+                <Input
+                  name="country"
+                  value={formData.country}
+                  onChange={handleChange}
+                />
+              </div>
               <div>
                 <label>Role</label>
                 <Select
@@ -1080,11 +1206,12 @@ const AddUserModal = ({ onSubmit, onClose }) => {
                 >
                   <option value="user">User</option>
                   <option value="trader">Trader</option>
-                  <option value="admin">Admin</option>
+                  <option value="tenant_admin">Tenant Admin</option>
+                  <option value="platform_admin">Platform Admin</option>
                 </Select>
               </div>
               
-              <div style={{ marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
+              <div style={{ marginTop: '0.5rem', paddingTop: '1rem', borderTop: `1px solid ${theme.colors.border}` }}>
                 <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.75rem' }}>
                   Client Types
                 </label>
@@ -1131,15 +1258,16 @@ const AddUserModal = ({ onSubmit, onClose }) => {
 
 // User Actions Dropdown Component
 const UserActionsDropdown = ({ user, onEdit, onDelete, onToggleStatus, onClose }) => {
+  const theme = useTheme();
   return (
     <div style={{
       position: 'absolute',
       top: '100%',
       right: 0,
-      backgroundColor: 'white',
-      border: '1px solid #e2e8f0',
+      backgroundColor: theme.colors.surfaceElevated,
+      border: `1px solid ${theme.colors.border}`,
       borderRadius: '8px',
-      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+      boxShadow: theme.shadows.md,
       zIndex: 1000,
       minWidth: '160px',
       padding: '0.5rem 0'
@@ -1155,7 +1283,8 @@ const UserActionsDropdown = ({ user, onEdit, onDelete, onToggleStatus, onClose }
           display: 'flex',
           alignItems: 'center',
           gap: '0.5rem',
-          fontSize: '0.875rem'
+          fontSize: '0.875rem',
+          color: theme.colors.text
         }}
         onClick={() => {
           onEdit(user);
@@ -1178,7 +1307,7 @@ const UserActionsDropdown = ({ user, onEdit, onDelete, onToggleStatus, onClose }
           alignItems: 'center',
           gap: '0.5rem',
           fontSize: '0.875rem',
-          color: user.isActive ? '#f59e0b' : '#10b981'
+          color: user.isActive ? theme.colors.warning : theme.colors.success
         }}
         onClick={() => {
           onToggleStatus(user);
@@ -1201,7 +1330,7 @@ const UserActionsDropdown = ({ user, onEdit, onDelete, onToggleStatus, onClose }
           alignItems: 'center',
           gap: '0.5rem',
           fontSize: '0.875rem',
-          color: '#ef4444'
+          color: theme.colors.error
         }}
         onClick={() => {
           onDelete(user);
@@ -1216,15 +1345,9 @@ const UserActionsDropdown = ({ user, onEdit, onDelete, onToggleStatus, onClose }
 };
 
 // Edit User Modal Component
-const EditUserModal = ({ user, onSubmit, onClose }) => {
-  // Extract client type settings from user.settings or use defaults
-  const userSettings = user.settings || {};
-  const intercomEnabled = userSettings.intercomEnabled !== undefined 
-    ? userSettings.intercomEnabled 
-    : (user.intercomEnabled !== undefined ? user.intercomEnabled : true);
-  const dealerboardEnabled = userSettings.dealerboardEnabled !== undefined 
-    ? userSettings.dealerboardEnabled 
-    : (user.dealerboardEnabled !== undefined ? user.dealerboardEnabled : false);
+const EditUserModal = ({ user, locations, onSubmit, onOpenButtonLayout, onClose }) => {
+  const theme = useTheme();
+  const { intercomEnabled, dealerboardEnabled } = getUserClientAccess(user);
   
   const [formData, setFormData] = useState({
     username: user.username || '',
@@ -1233,6 +1356,7 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
     email: user.email || '',
     role: user.role || 'user',
     isActive: user.isActive !== undefined ? user.isActive : true,
+    locationId: user.locationId || '',
     intercomEnabled: intercomEnabled,
     dealerboardEnabled: dealerboardEnabled
   });
@@ -1246,7 +1370,7 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
   };
 
   const handleSubmit = (e) => {
-    e.preventDefault();
+    if (e?.preventDefault) e.preventDefault();
     onSubmit(formData);
   };
 
@@ -1322,6 +1446,24 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
                   <option value="admin">Admin</option>
                 </Select>
               </div>
+
+              <div>
+                <label style={{ fontWeight: '600', display: 'block', marginBottom: '0.5rem' }}>
+                  Location
+                </label>
+                <Select
+                  name="locationId"
+                  value={formData.locationId}
+                  onChange={handleInputChange}
+                >
+                  <option value="">Unassigned</option>
+                  {(locations || []).map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input
@@ -1338,8 +1480,8 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
               <div style={{ 
                 marginTop: '1.5rem', 
                 paddingTop: '1.5rem', 
-                borderTop: '2px solid #e5e7eb',
-                backgroundColor: '#f9fafb',
+                borderTop: `2px solid ${theme.colors.border}`,
+                backgroundColor: theme.colors.surfaceElevated,
                 padding: '1.5rem',
                 borderRadius: '8px'
               }}>
@@ -1348,10 +1490,13 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
                   display: 'block', 
                   marginBottom: '1rem',
                   fontSize: '1rem',
-                  color: '#374151'
+                  color: theme.colors.text
                 }}>
                   Client Types
                 </label>
+                <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: theme.colors.textSecondary }}>
+                  Check the client(s) this user may sign in with. Only checked clients are assigned.
+                </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   <div style={{ 
                     display: 'flex', 
@@ -1359,7 +1504,7 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
                     gap: '0.75rem',
                     padding: '0.5rem',
                     borderRadius: '4px',
-                    backgroundColor: 'white'
+                    backgroundColor: theme.colors.surface
                   }}>
                     <input
                       type="checkbox"
@@ -1379,7 +1524,7 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
                         fontWeight: '500',
                         cursor: 'pointer',
                         fontSize: '0.95rem',
-                        color: '#111827'
+                        color: theme.colors.text
                       }}
                     >
                       Intercom Client
@@ -1391,7 +1536,7 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
                     gap: '0.75rem',
                     padding: '0.5rem',
                     borderRadius: '4px',
-                    backgroundColor: 'white'
+                    backgroundColor: theme.colors.surface
                   }}>
                     <input
                       type="checkbox"
@@ -1411,7 +1556,7 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
                         fontWeight: '500',
                         cursor: 'pointer',
                         fontSize: '0.95rem',
-                        color: '#111827'
+                        color: theme.colors.text
                       }}
                     >
                       Dealerboard Client
@@ -1423,10 +1568,23 @@ const EditUserModal = ({ user, onSubmit, onClose }) => {
           </form>
         </ModalBody>
         <ModalFooter>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" type="button" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={handleSubmit}>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={() => onOpenButtonLayout?.({
+              intercomEnabled: formData.intercomEnabled,
+              dealerboardEnabled: formData.dealerboardEnabled,
+            })}
+            disabled={!formData.intercomEnabled && !formData.dealerboardEnabled}
+            title={!formData.intercomEnabled && !formData.dealerboardEnabled ? 'Enable Intercom and/or Dealerboard to configure buttons' : 'Configure button layout'}
+          >
+            <FiGrid />
+            Configure Buttons
+          </Button>
+          <Button variant="primary" type="button" onClick={handleSubmit}>
             <FiEdit />
             Update User
           </Button>

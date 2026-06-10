@@ -897,6 +897,7 @@ export const useInstantIntercomWebRTC = () => {
         },
         body: JSON.stringify({ 
           direction: 'send',
+          groupId: callId,
           callId
         }),
         credentials: 'include'
@@ -938,6 +939,7 @@ export const useInstantIntercomWebRTC = () => {
               transportId: params.id,
               kind,
               rtpParameters,
+              groupId: callId,
               appData: {
                 ...appData,
                 callId,
@@ -985,6 +987,7 @@ export const useInstantIntercomWebRTC = () => {
         },
         body: JSON.stringify({ 
           direction: 'recv',
+          groupId: callId,
           callId
         }),
         credentials: 'include'
@@ -1134,7 +1137,8 @@ export const useInstantIntercomWebRTC = () => {
         body: JSON.stringify({
           transportId: transport.id,
           producerId,
-          rtpCapabilities
+          rtpCapabilities,
+          groupId: activeCall?.callId
         }),
         credentials: 'include'
       });

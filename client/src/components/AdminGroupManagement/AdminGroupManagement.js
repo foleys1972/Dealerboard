@@ -11,7 +11,8 @@ import {
   FiUserPlus,
   FiUserMinus,
   FiEdit,
-  FiTrash2
+  FiTrash2,
+  FiPlus,
 } from 'react-icons/fi';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { theme } from '../../styles/GlobalStyle';
@@ -410,14 +411,15 @@ const ModalButton = styled.button`
   }
 `;
 
-const EditGroupModal = ({ group, onClose, onSave }) => {
+const GroupFormModal = ({ group, onClose, onSave, title, submitLabel }) => {
+  const isCreate = !group;
   const [formData, setFormData] = useState({
-    name: group.name || '',
-    description: group.description || '',
-    maxParticipants: group.maxParticipants || 200,
-    callMode: group.callMode || 'conference',
-    allowRecording: group.allowRecording !== false,
-    pushToTalk: group.pushToTalk || false,
+    name: group?.name || '',
+    description: group?.description || '',
+    maxParticipants: group?.maxParticipants || 200,
+    callMode: group?.callMode || 'group-call',
+    allowRecording: group?.allowRecording !== false,
+    pushToTalk: group?.pushToTalk || false,
   });
 
   const handleSubmit = (e) => {
@@ -429,7 +431,7 @@ const EditGroupModal = ({ group, onClose, onSave }) => {
     <Modal onClick={onClose}>
       <ModalContent onClick={(e) => e.stopPropagation()}>
         <ModalHeader>
-          <ModalTitle>Edit Group</ModalTitle>
+          <ModalTitle>{title}</ModalTitle>
           <ModalCloseButton onClick={onClose}>
             <FiX />
           </ModalCloseButton>
@@ -498,8 +500,8 @@ const EditGroupModal = ({ group, onClose, onSave }) => {
               Cancel
             </ModalButton>
             <ModalButton $primary type="submit">
-              <FiEdit />
-              Update Group
+              {isCreate ? <FiPlus /> : <FiEdit />}
+              {submitLabel}
             </ModalButton>
           </ModalFooter>
         </form>
@@ -512,6 +514,7 @@ const AdminGroupManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
@@ -544,9 +547,13 @@ const AdminGroupManagement = () => {
         (group.description || '').toLowerCase().includes(searchTerm.toLowerCase());
       
       const callMode = group.callMode || 'conference';
-      const matchesType = filterType === 'all' || 
-        (filterType === 'group-call' && (callMode === 'hunt' || callMode === 'group-call')) ||
-        (filterType === 'conference' && callMode === 'conference');
+      const matchesType = filterType === 'all' ||
+        (filterType === 'group-call' &&
+          (callMode === 'hunt' ||
+            callMode === 'group-call' ||
+            callMode === 'REMAIN_GROUP' ||
+            callMode === 'FIRST_ANSWER')) ||
+        (filterType === 'conference' && (callMode === 'conference' || callMode === 'broadcast'));
       
       return matchesSearch && matchesType;
     });
@@ -570,7 +577,7 @@ const AdminGroupManagement = () => {
 
   const handleSaveGroup = async (groupData) => {
     if (!editingGroup) return;
-    
+
     try {
       await api.put(`/api/groups/${editingGroup.id}`, groupData);
       toast.success('Group updated successfully');
@@ -582,10 +589,46 @@ const AdminGroupManagement = () => {
     }
   };
 
+  const handleCreateGroup = async (groupData) => {
+    try {
+      await api.post('/api/groups', {
+        ...groupData,
+        callMode: groupData.callMode || 'group-call',
+      });
+      toast.success('Group created successfully');
+      setShowCreateModal(false);
+      queryClient.invalidateQueries('admin-groups');
+      refetch();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to create group');
+      console.error('Create group error:', error);
+    }
+  };
+
+  const handleDeleteGroup = async (group) => {
+    if (!window.confirm(`Delete group "${group.name}"? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await api.delete(`/api/groups/${group.id}`);
+      toast.success('Group deleted');
+      queryClient.invalidateQueries('admin-groups');
+      refetch();
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to delete group');
+    }
+  };
+
   const getCallModeLabel = (callMode) => {
-    const mode = callMode || 'conference';
-    if (mode === 'hunt' || mode === 'group-call') {
+    const mode = callMode || 'REMAIN_GROUP';
+    if (mode === 'FIRST_ANSWER' || mode === 'hunt') {
+      return { label: 'Hunt / First Answer', variant: 'group-call' };
+    }
+    if (mode === 'REMAIN_GROUP' || mode === 'group-call' || mode === 'group_call') {
       return { label: 'Group Call', variant: 'group-call' };
+    }
+    if (mode === 'broadcast') {
+      return { label: 'Broadcast', variant: 'conference' };
     }
     return { label: 'Conference', variant: 'conference' };
   };
@@ -621,17 +664,25 @@ const AdminGroupManagement = () => {
         <MainContent>
           <TableHeader>
             <TableTitle>Groups ({filteredGroups.length})</TableTitle>
-            <HeaderButton onClick={() => refetch()} disabled={isLoading}>
-              <FiRefreshCw />
-              Refresh
-            </HeaderButton>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <HeaderButton type="button" onClick={() => setShowCreateModal(true)}>
+                <FiPlus />
+                Create Group
+              </HeaderButton>
+              <HeaderButton type="button" onClick={() => refetch()} disabled={isLoading}>
+                <FiRefreshCw />
+                Refresh
+              </HeaderButton>
+            </div>
           </TableHeader>
           
           <TableContainer>
             {isLoading ? (
               <EmptyState>Loading groups...</EmptyState>
             ) : filteredGroups.length === 0 ? (
-              <EmptyState>No groups found</EmptyState>
+              <EmptyState>
+                No groups found. Click <strong>Create Group</strong> to add one.
+              </EmptyState>
             ) : (
               <Table>
                 <TableHead>
@@ -642,6 +693,7 @@ const AdminGroupManagement = () => {
                     <TableHeaderCell>Max Participants</TableHeaderCell>
                     <TableHeaderCell>Created</TableHeaderCell>
                     <TableHeaderCell>Last Used</TableHeaderCell>
+                    <TableHeaderCell>Actions</TableHeaderCell>
                   </TableHeaderRow>
                 </TableHead>
                 <TableBody>
@@ -690,6 +742,36 @@ const AdminGroupManagement = () => {
                             ? format(new Date(group.lastUsedOn), 'MMM dd, yyyy HH:mm')
                             : '—'}
                         </TableCell>
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <ActionButton
+                            type="button"
+                            title="Members"
+                            onClick={() => {
+                              setSelectedGroup(group);
+                              setShowDetailModal(true);
+                            }}
+                          >
+                            <FiUsers />
+                            Members
+                          </ActionButton>
+                          <ActionButton
+                            type="button"
+                            title="Edit"
+                            onClick={() => handleDoubleClick(group)}
+                          >
+                            <FiEdit />
+                            Edit
+                          </ActionButton>
+                          <ActionButton
+                            type="button"
+                            title="Delete"
+                            onClick={() => handleDeleteGroup(group)}
+                            style={{ borderColor: '#ef4444', color: '#ef4444' }}
+                          >
+                            <FiTrash2 />
+                            Delete
+                          </ActionButton>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
@@ -699,9 +781,21 @@ const AdminGroupManagement = () => {
           </TableContainer>
         </MainContent>
 
+        {showCreateModal && (
+          <GroupFormModal
+            group={null}
+            title="Create Group"
+            submitLabel="Create Group"
+            onClose={() => setShowCreateModal(false)}
+            onSave={handleCreateGroup}
+          />
+        )}
+
         {showEditModal && editingGroup && (
-          <EditGroupModal
+          <GroupFormModal
             group={editingGroup}
+            title="Edit Group"
+            submitLabel="Update Group"
             onClose={handleCloseEdit}
             onSave={handleSaveGroup}
           />

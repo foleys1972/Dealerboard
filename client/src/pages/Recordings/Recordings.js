@@ -289,21 +289,11 @@ const PlayPauseButton = styled(Button)`
   padding: 0;
 `;
 
-const ProgressBar = styled.div`
+const SeekSlider = styled.input`
   flex: 1;
   height: 6px;
-  background: ${props => props.theme.colors.border};
   border-radius: 3px;
-  position: relative;
-  cursor: pointer;
-`;
-
-const ProgressFill = styled.div`
-  height: 100%;
-  background: ${props => props.theme.colors.accent};
-  border-radius: 3px;
-  width: ${props => props.$progress}%;
-  transition: width 0.1s ease;
+  accent-color: ${props => props.theme.colors.accent};
 `;
 
 const TimeDisplay = styled.div`
@@ -338,6 +328,23 @@ const Recordings = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   
   const queryClient = useQueryClient();
+
+  const { data: systemSettings } = useQuery(
+    'systemSettings-recordings',
+    async () => {
+      const res = await api.get('/api/system/settings');
+      return res.data?.settings || {};
+    },
+    {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      onError: () => {
+        // Non-admins or tenants may not have access; default to no deletion.
+      }
+    }
+  );
+
+  const allowDelete = Boolean(systemSettings?.recordings?.allowDeletion);
   
   // Apply search filters
   const handleSearch = () => {
@@ -426,15 +433,48 @@ const Recordings = () => {
     if (!recordings || recordings.length === 0) return [];
 
     return recordings.filter(recording => {
-      // Search term (matches ID, participants, or metadata)
+      const recordingType = (
+        recording.callType ||
+        recording.type ||
+        recording.metadata?.callType ||
+        recording.metadata?.type ||
+        'direct'
+      );
+
+      const typeLabel = recordingType === 'broadcast'
+        ? 'broadcast'
+        : (recordingType === 'group-call' ? 'group call' : (recordingType === 'intercom' ? 'direct' : 'direct'));
+
+      const participantsArr = Array.isArray(recording.participants) ? recording.participants : [];
+      const initiator = participantsArr.find(p => typeof p === 'object' && String(p.role || '').toLowerCase() === 'initiator');
+      const answerer = participantsArr.find(p => typeof p === 'object' && String(p.role || '').toLowerCase() === 'answerer');
+
+      // Search term (matches across all displayed fields)
       if (searchTerm) {
         const searchLower = searchTerm.toLowerCase();
-        const matchesId = recording.id?.toLowerCase().includes(searchLower);
-        const matchesParticipants = Array.isArray(recording.participants) && 
-          recording.participants.some(p => {
+        const matchesId = String(recording.id || '').toLowerCase().includes(searchLower);
+        const matchesType = String(recordingType).toLowerCase().includes(searchLower) || typeLabel.includes(searchLower);
+
+        const lineOrGroupName = String(getLineOrGroupName(recording) || '').toLowerCase();
+        const matchesLineOrGroupName = lineOrGroupName.includes(searchLower);
+
+        const startTimeStr = String(recording.startTime || '').toLowerCase();
+        const endTimeStr = String(recording.endTime || '').toLowerCase();
+        const durationStr = String(recording.duration || '').toLowerCase();
+        const fileUrlStr = String(recording.fileUrl || recording.filePath || '').toLowerCase();
+        const callModeStr = String(recording.groupCallMode || recording.broadcastMode || '').toLowerCase();
+
+        const matchesCallerCallee = (
+          String(initiator?.userId || '').toLowerCase().includes(searchLower) ||
+          String(answerer?.userId || '').toLowerCase().includes(searchLower)
+        );
+
+        const matchesParticipants = participantsArr.length > 0 &&
+          participantsArr.some(p => {
             if (typeof p === 'object') {
               return (
                 String(p.userId || '').toLowerCase().includes(searchLower) ||
+                String(p.role || '').toLowerCase().includes(searchLower) ||
                 String(p.userName || '').toLowerCase().includes(searchLower) ||
                 String(p.userDisplayName || '').toLowerCase().includes(searchLower) ||
                 String(p.userUri || '').toLowerCase().includes(searchLower)
@@ -443,7 +483,16 @@ const Recordings = () => {
             return String(p).toLowerCase().includes(searchLower);
           });
         const matchesMetadata = JSON.stringify(recording.metadata || {}).toLowerCase().includes(searchLower);
-        if (!matchesId && !matchesParticipants && !matchesMetadata) {
+
+        const matchesTimesDuration =
+          startTimeStr.includes(searchLower) ||
+          endTimeStr.includes(searchLower) ||
+          durationStr.includes(searchLower);
+        const matchesOther =
+          fileUrlStr.includes(searchLower) ||
+          callModeStr.includes(searchLower);
+
+        if (!matchesId && !matchesType && !matchesLineOrGroupName && !matchesCallerCallee && !matchesParticipants && !matchesMetadata && !matchesTimesDuration && !matchesOther) {
           return false;
         }
       }
@@ -532,7 +581,6 @@ const Recordings = () => {
 
       // Filter by call type
       if (filterCallType !== 'all') {
-        const recordingType = recording.type || recording.metadata?.type || 'direct';
         if (recordingType !== filterCallType) {
           return false;
         }
@@ -554,6 +602,9 @@ const Recordings = () => {
   // Delete recording mutation
   const deleteRecordingMutation = useMutation(
     async (recordingId) => {
+      if (!allowDelete) {
+        throw new Error('Recording deletion is disabled');
+      }
       const response = await api.delete(`/api/recordings/${recordingId}`);
       return response.data;
     },
@@ -747,6 +798,10 @@ const Recordings = () => {
   };
 
   const handleDeleteRecording = (recording) => {
+    if (!allowDelete) {
+      toast.error('Recording deletion is disabled by system settings');
+      return;
+    }
     if (window.confirm('Are you sure you want to delete this recording?')) {
       deleteRecordingMutation.mutate(recording.id);
     }
@@ -763,11 +818,12 @@ const Recordings = () => {
   };
 
   const formatDuration = (milliseconds) => {
-    if (!milliseconds) return '0:00';
-    const seconds = Math.floor(milliseconds / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    if (!milliseconds || milliseconds < 0) return '00:00:00';
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
   const getCallTypeIcon = (type) => {
@@ -792,6 +848,39 @@ const Recordings = () => {
       default:
         return 'Direct 1:1';
     }
+  };
+
+  const getLineOrGroupName = (callType, meta) => {
+    if (!meta) return null;
+    const name = meta.lineName || meta.groupName || null;
+    if (!name) return null;
+    // For this UI, treat both group calls and broadcasts as "lines".
+    if (callType === 'broadcast' || callType === 'group') return name;
+    return null;
+  };
+
+  const getParticipantDisplayText = (participant, index) => {
+    if (participant && typeof participant === 'object') {
+      const displayName = participant.userDisplayName || participant.displayName || null;
+      const username = participant.userName || participant.username || null;
+      const userId = participant.userId || participant.id || null;
+      const uri = participant.userUri || participant.uri || null;
+
+      const primary = displayName || username || userId || uri;
+      if (!primary) return `Participant ${index + 1}`;
+
+      if (uri && (displayName || username) && !String(primary).includes(String(uri)))
+      {
+        return `${primary} (${uri})`;
+      }
+      return String(primary);
+    }
+
+    if (typeof participant === 'string' && participant.trim().length > 0) {
+      return participant;
+    }
+
+    return `Participant ${index + 1}`;
   };
 
   if (recordingsLoading) {
@@ -958,6 +1047,11 @@ const Recordings = () => {
         <RecordingsGrid columns={1}>
           {filteredRecordings.map((recording) => {
             const callType = recording.type || recording.metadata?.type || 'direct';
+            const meta = recording.metadata || {};
+            const lineOrGroupName = getLineOrGroupName(callType, meta);
+            const participantsForDisplay = Array.isArray(meta.participantDetails) && meta.participantDetails.length > 0
+              ? meta.participantDetails
+              : (recording.participants || []);
             // Handle startTime - could be Date object, ISO string, or timestamp
             let startTime = new Date();
             if (recording.startTime) {
@@ -994,6 +1088,38 @@ const Recordings = () => {
                 </RecordingHeader>
 
                 <RecordingInfo>
+                  {callType === 'direct' && (meta.callerName || meta.targetName || meta.callerId || meta.targetId) && (
+                    <RecordingDetail>
+                      <RecordingDetailIcon>
+                        <FiUser />
+                      </RecordingDetailIcon>
+                      <RecordingDetailText>
+                        {`${meta.callerName || meta.callerId || 'Unknown'} → ${meta.targetName || meta.targetId || 'Unknown'}`}
+                      </RecordingDetailText>
+                    </RecordingDetail>
+                  )}
+
+                  {(callType === 'broadcast' || callType === 'group') && lineOrGroupName && (
+                    <RecordingDetail>
+                      <RecordingDetailIcon>
+                        <FiRadio />
+                      </RecordingDetailIcon>
+                      <RecordingDetailText>
+                        {`Line: ${lineOrGroupName}`}
+                      </RecordingDetailText>
+                    </RecordingDetail>
+                  )}
+
+                  {callType === 'group' && Array.isArray(meta.speakerDetails) && meta.speakerDetails.length > 0 && (
+                    <RecordingDetail>
+                      <RecordingDetailIcon>
+                        <FiMic />
+                      </RecordingDetailIcon>
+                      <RecordingDetailText>
+                        {`Spoke: ${meta.speakerDetails.length}`}
+                      </RecordingDetailText>
+                    </RecordingDetail>
+                  )}
                   <RecordingDetail>
                     <RecordingDetailIcon>
                       <FiClock />
@@ -1012,42 +1138,21 @@ const Recordings = () => {
                     </RecordingDetailText>
                   </RecordingDetail>
 
-                  {recording.participants && recording.participants.length > 0 && (
+                  {Array.isArray(participantsForDisplay) && participantsForDisplay.length > 0 && (
                     <RecordingDetail>
                       <RecordingDetailIcon>
                         <FiUsers />
                       </RecordingDetailIcon>
                       <RecordingDetailText>
-                        Participants: {recording.participants.length}
+                        Participants: {participantsForDisplay.length}
                       </RecordingDetailText>
                     </RecordingDetail>
                   )}
 
-                  {recording.participants && recording.participants.length > 0 && (
+                  {Array.isArray(participantsForDisplay) && participantsForDisplay.length > 0 && (
                     <ParticipantsList>
-                      {recording.participants.map((participant, index) => {
-                        // Handle both old format (string IDs) and new format (objects with user info)
-                        let displayText = '';
-                        
-                        if (typeof participant === 'object' && participant !== null) {
-                          // New format with user info - show username and URI
-                          const username = participant.userName || null;
-                          const uri = participant.userUri || null;
-                          
-                          if (username && uri) {
-                            displayText = `${username} (${uri})`;
-                          } else if (username) {
-                            displayText = username;
-                          } else if (uri) {
-                            displayText = uri;
-                          } else {
-                            // No username or URI available
-                            displayText = `Participant ${index + 1}`;
-                          }
-                        } else {
-                          // Old format - just an ID string, show as unknown
-                          displayText = `Participant ${index + 1}`;
-                        }
+                      {participantsForDisplay.map((participant, index) => {
+                        const displayText = getParticipantDisplayText(participant, index);
                         
                         return (
                           <ParticipantBadge key={index} variant="info">
@@ -1056,6 +1161,17 @@ const Recordings = () => {
                           </ParticipantBadge>
                         );
                       })}
+                    </ParticipantsList>
+                  )}
+
+                  {callType === 'group' && Array.isArray(meta.speakerDetails) && meta.speakerDetails.length > 0 && (
+                    <ParticipantsList>
+                      {meta.speakerDetails.map((speaker, index) => (
+                        <ParticipantBadge key={`spk-${index}`} variant="warning">
+                          <FiMic />
+                          <span>{speaker.userName || speaker.userId || `Speaker ${index + 1}`}</span>
+                        </ParticipantBadge>
+                      ))}
                     </ParticipantsList>
                   )}
                 </RecordingInfo>
@@ -1090,9 +1206,18 @@ const Recordings = () => {
                   <RecordingActionButton
                     variant="danger"
                     onClick={() => handleDeleteRecording(recording)}
+                    disabled={!allowDelete}
                   >
                     <FiTrash2 />
                     Delete
+                  </RecordingActionButton>
+
+                  <RecordingActionButton
+                    variant="secondary"
+                    onClick={() => refetch()}
+                  >
+                    <FiRefreshCw />
+                    Refresh
                   </RecordingActionButton>
                 </RecordingActions>
 
@@ -1105,19 +1230,24 @@ const Recordings = () => {
                       >
                         {isPlaying ? <FiPause /> : <FiPlay />}
                       </PlayPauseButton>
-                      
-                      <ProgressBar
-                        onClick={(e) => {
-                          if (audioRef && audioDuration) {
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            const clickX = e.clientX - rect.left;
-                            const percentage = clickX / rect.width;
-                            audioRef.currentTime = percentage * audioDuration;
+
+                      <SeekSlider
+                        type="range"
+                        min={0}
+                        max={Math.max(0, audioDuration || 0)}
+                        step={0.1}
+                        value={Math.min(audioProgress, audioDuration || 0)}
+                        onChange={(e) => {
+                          if (audioRef) {
+                            const v = Number(e.target.value);
+                            if (Number.isFinite(v)) {
+                              audioRef.currentTime = v;
+                              setAudioProgress(v);
+                            }
                           }
                         }}
-                      >
-                        <ProgressFill $progress={audioDuration > 0 ? (audioProgress / audioDuration) * 100 : 0} />
-                      </ProgressBar>
+                        disabled={!audioRef || !audioDuration}
+                      />
                       
                       <TimeDisplay>
                         {formatDuration(audioProgress * 1000)} / {formatDuration(audioDuration * 1000)}
@@ -1176,6 +1306,35 @@ const Recordings = () => {
                             <MetadataValue>{recording.groupId}</MetadataValue>
                           </MetadataItem>
                         )}
+
+                        {(meta.groupName || meta.lineName) && (
+                          <MetadataItem>
+                            <MetadataLabel>{callType === 'broadcast' ? 'Line Name' : 'Group Name'}</MetadataLabel>
+                            <MetadataValue>{meta.lineName || meta.groupName}</MetadataValue>
+                          </MetadataItem>
+                        )}
+
+                        {callType === 'direct' && (meta.callerName || meta.targetName || meta.callerId || meta.targetId) && (
+                          <MetadataItem style={{ gridColumn: '1 / -1' }}>
+                            <MetadataLabel>Direct Call</MetadataLabel>
+                            <MetadataValue>{`${meta.callerName || meta.callerId || 'Unknown'} → ${meta.targetName || meta.targetId || 'Unknown'}`}</MetadataValue>
+                          </MetadataItem>
+                        )}
+
+                        {callType === 'group' && Array.isArray(meta.speakerDetails) && meta.speakerDetails.length > 0 && (
+                          <MetadataItem style={{ gridColumn: '1 / -1' }}>
+                            <MetadataLabel>Speakers ({meta.speakerDetails.length})</MetadataLabel>
+                            <MetadataValue>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {meta.speakerDetails.map((s, idx) => (
+                                  <div key={idx} style={{ padding: '0.5rem', background: '#f5f5f5', borderRadius: '4px' }}>
+                                    <div><strong>User:</strong> {s.userName || s.userId || 'Unknown'}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </MetadataValue>
+                          </MetadataItem>
+                        )}
                         
                         {(recording.userId || recording.metadata?.userId) && (
                           <MetadataItem>
@@ -1194,46 +1353,7 @@ const Recordings = () => {
                         {recording.metadata?.userUri && (
                           <MetadataItem>
                             <MetadataLabel>User URI</MetadataLabel>
-                            <MetadataValue>{recording.metadata.userUri}</MetadataValue>
-                          </MetadataItem>
-                        )}
-                        
-                        {recording.participants && recording.participants.length > 0 && (
-                          <MetadataItem style={{ gridColumn: '1 / -1' }}>
-                            <MetadataLabel>Participants ({recording.participants.length})</MetadataLabel>
-                            <MetadataValue>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                {recording.participants.map((participant, idx) => {
-                                  if (typeof participant === 'object' && participant !== null) {
-                                    const username = participant.userName || null;
-                                    const uri = participant.userUri || null;
-                                    
-                                    // Only show if we have at least username or URI
-                                    if (username || uri) {
-                                      return (
-                                        <div key={idx} style={{ padding: '0.5rem', background: '#f5f5f5', borderRadius: '4px' }}>
-                                          {username && <div><strong>Username:</strong> {username}</div>}
-                                          {uri && <div><strong>URI:</strong> {uri}</div>}
-                                        </div>
-                                      );
-                                    }
-                                    // Fallback if no username or URI
-                                    return (
-                                      <div key={idx} style={{ padding: '0.5rem', background: '#f5f5f5', borderRadius: '4px', color: '#999' }}>
-                                        Participant {idx + 1} (no username/URI available)
-                                      </div>
-                                    );
-                                  } else {
-                                    // Old format - just an ID string, try to look it up or show as unknown
-                                    return (
-                                      <div key={idx} style={{ padding: '0.5rem', background: '#f5f5f5', borderRadius: '4px', color: '#999' }}>
-                                        Participant {idx + 1} (ID only: {String(participant || 'Unknown')})
-                                      </div>
-                                    );
-                                  }
-                                })}
-                              </div>
-                            </MetadataValue>
+                            <MetadataValue>{recording.metadata?.userUri}</MetadataValue>
                           </MetadataItem>
                         )}
                         

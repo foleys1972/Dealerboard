@@ -600,6 +600,7 @@ const AdminBroadcastManagement = () => {
                 <TableHead>
                   <TableHeaderRow>
                     <TableHeaderCell>Name</TableHeaderCell>
+                    <TableHeaderCell>AOR</TableHeaderCell>
                     <TableHeaderCell>Status</TableHeaderCell>
                     <TableHeaderCell>Listeners</TableHeaderCell>
                     <TableHeaderCell>Speakers</TableHeaderCell>
@@ -627,12 +628,18 @@ const AdminBroadcastManagement = () => {
                             <div style={{ fontWeight: 500, marginBottom: '0.25rem' }}>
                               {broadcast.name || 'Unnamed Broadcast'}
                             </div>
+                            <div style={{ fontSize: '0.75rem', color: theme.colors.textTertiary, fontFamily: 'monospace' }}>
+                              AOR: {String(broadcast?.metadata?.aor || `BCAST:${broadcast.id}`)}
+                            </div>
                             {broadcast.description && (
                               <div style={{ fontSize: '0.75rem', color: theme.colors.textTertiary }}>
                                 {broadcast.description}
                               </div>
                             )}
                           </div>
+                        </TableCell>
+                        <TableCell style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                          {String(broadcast?.metadata?.aor || `BCAST:${broadcast.id}`)}
                         </TableCell>
                         <TableCell>
                           <Badge $variant={isActive ? 'active' : 'inactive'}>

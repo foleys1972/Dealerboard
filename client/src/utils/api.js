@@ -1,14 +1,43 @@
 import axios from 'axios';
-import { getClientRoutingService } from '../services/clientRoutingService';
+import { getClientRoutingService, normalizeDevApiUrl } from '../services/clientRoutingService';
+
+const defaultBaseUrl = normalizeDevApiUrl((() => {
+  const envUrl = process.env.REACT_APP_API_URL;
+  if (envUrl) return envUrl;
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+
+  return 'http://localhost:5000';
+})());
 
 // Configure axios with base URL
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000',
+  baseURL: defaultBaseUrl,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+function normalizeBaseUrl(rawBaseUrl) {
+  const raw = rawBaseUrl ? String(rawBaseUrl).trim() : '';
+  if (!raw) return raw;
+
+  let normalized = raw;
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  if (normalized.toLowerCase().endsWith('/api')) {
+    normalized = normalized.slice(0, -4);
+  }
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
+}
 
 // Request interceptor to add auth token and use client routing
 api.interceptors.request.use(
@@ -25,13 +54,33 @@ api.interceptors.request.use(
       } else {
         // If apiBase is invalid (like just ":5000"), use default
         console.warn('Invalid API base URL from routing service:', apiBase, 'using default');
-        config.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+        config.baseURL = defaultBaseUrl;
       }
     }
     
     // Ensure baseURL is always valid
     if (!config.baseURL || (!config.baseURL.startsWith('http://') && !config.baseURL.startsWith('https://'))) {
-      config.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+      config.baseURL = defaultBaseUrl;
+    }
+
+    // Normalize baseURL so it never ends with '/api'.
+    // Our client calls endpoints using '/api/...' paths.
+    config.baseURL = normalizeDevApiUrl(normalizeBaseUrl(config.baseURL));
+
+    // If a caller uses '/api/...' paths (common), but baseURL also includes '/api',
+    // strip the duplicate prefix to avoid '/api/api/...'.
+    if (config.url && typeof config.url === 'string') {
+      const url = config.url;
+      const base = String(config.baseURL || '');
+      if (base.toLowerCase().endsWith('/api') && url.startsWith('/api/')) {
+        config.url = url.slice(4);
+      }
+
+      // Extra hardening: if we still have a double '/api/api/' in the constructed path,
+      // fix it at the url level.
+      if (config.url && typeof config.url === 'string' && config.url.includes('/api/api/')) {
+        config.url = config.url.replace('/api/api/', '/api/');
+      }
     }
 
     // Add auth token
@@ -59,9 +108,21 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     const routingService = getClientRoutingService();
+
+    const requestUrl = (originalRequest?.url || '').toString();
+    const isAuthEndpoint = requestUrl.includes('/api/auth/login') ||
+      requestUrl.includes('/api/auth/refresh') ||
+      requestUrl.includes('/api/auth/me');
     
-    // Handle server errors (5xx) with failover
-    if (error.response?.status >= 500 && routingService.isInitialized && !originalRequest._failoverAttempted) {
+    // Handle server errors (5xx) with failover — skip for local single-server dev
+    const apiBaseForFailover = (originalRequest?.baseURL || '').toString();
+    const isLocalDevApi = /localhost|127\.0\.0\.1|:5000/.test(apiBaseForFailover);
+    if (
+      error.response?.status >= 500 &&
+      routingService.isInitialized &&
+      !originalRequest._failoverAttempted &&
+      !isLocalDevApi
+    ) {
       originalRequest._failoverAttempted = true;
       
       // Try failover to backup homeserver
@@ -73,8 +134,9 @@ api.interceptors.response.use(
       }
     }
     
-    // Handle 401 Unauthorized
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Handle 401/403 auth failures (403 = invalid/expired token from authenticateToken)
+    const authFailed = error.response?.status === 401 || error.response?.status === 403;
+    if (authFailed && !originalRequest._retry && !requestUrl.includes('/api/auth/login')) {
       originalRequest._retry = true;
       
       try {
@@ -88,7 +150,7 @@ api.interceptors.response.use(
             // Use current API base URL for refresh
             const apiBase = routingService.isInitialized 
               ? routingService.getApiBaseUrl() 
-              : (process.env.REACT_APP_API_URL || 'http://localhost:5000');
+              : defaultBaseUrl;
             
             // Attempt token refresh
             const refreshResponse = await axios.post(
@@ -115,9 +177,32 @@ api.interceptors.response.use(
         console.error('Token refresh failed:', refreshError);
       }
       
-      // If refresh failed or no token, clear auth and redirect
-      localStorage.removeItem('auth-storage');
-      window.location.href = '/login';
+      // If refresh failed or no token, only force logout for auth-critical requests.
+      // Avoid logging out the whole UI because some non-critical endpoint returned 401.
+      if (isAuthEndpoint) {
+        localStorage.removeItem('auth-storage');
+        window.location.href = '/login';
+      }
+    }
+
+    // Targeted logging for persistent 404s on platform-admin routing endpoints.
+    try {
+      const status = error.response?.status;
+      const url = (originalRequest?.url || '').toString();
+      if (status === 404 && (url.includes('/platform-admin/ha/sites') || url.includes('/api/platform-admin/ha/sites'))) {
+        const baseURL = (originalRequest?.baseURL || '').toString();
+        const computed = (baseURL && url && !url.startsWith('http')) ? `${baseURL}${url}` : url;
+        // eslint-disable-next-line no-console
+        console.warn('API 404 (platform-admin ha/sites)', {
+          baseURL,
+          url,
+          computed,
+          method: originalRequest?.method,
+          response: error.response?.data,
+        });
+      }
+    } catch {
+      // ignore
     }
     
     return Promise.reject(error);

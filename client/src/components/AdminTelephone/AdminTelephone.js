@@ -109,7 +109,19 @@ const AdminTelephone = () => {
   const [formData, setFormData] = useState({
     lineNumber: '',
     lineName: '',
-    sbcDetails: '',
+    countryCode: '',
+    sbcHost: '',
+    sbcPort: '',
+    sbcUsername: '',
+    sbcPassword: '',
+    sbcDomain: '',
+    sbcSecondaryHost: '',
+    sbcSecondaryPort: '',
+    sbcSecondaryUsername: '',
+    sbcSecondaryPassword: '',
+    sbcSecondaryDomain: '',
+    sbcFailbackToPrimary: true,
+    sipRouteId: '',
     connectionDetails: '',
     subscriberId: ''
   });
@@ -134,8 +146,27 @@ const AdminTelephone = () => {
     }
   );
 
+  // Fetch countries for dial plan assignment
+  const { data: countriesData } = useQuery(
+    'countries',
+    async () => {
+      const res = await api.get('/api/system/countries');
+      return res.data.countries || [];
+    }
+  );
+
+  const { data: sipRoutesData } = useQuery(
+    'sipRoutes',
+    async () => {
+      const res = await api.get('/api/system/sip-routes?activeOnly=true');
+      return res.data.routes || [];
+    }
+  );
+
   const lines = linesData?.lines || [];
   const subscribers = subscribersData || [];
+  const countries = countriesData || [];
+  const sipRoutes = sipRoutesData || [];
 
   // Create/Update mutation
   const saveMutation = useMutation(
@@ -182,7 +213,18 @@ const AdminTelephone = () => {
     setFormData({
       lineNumber: '',
       lineName: '',
-      sbcDetails: '',
+      countryCode: '',
+      sbcHost: '',
+      sbcPort: '',
+      sbcUsername: '',
+      sbcPassword: '',
+      sbcDomain: '',
+      sbcSecondaryHost: '',
+      sbcSecondaryPort: '',
+      sbcSecondaryUsername: '',
+      sbcSecondaryPassword: '',
+      sbcSecondaryDomain: '',
+      sbcFailbackToPrimary: true,
       connectionDetails: '',
       subscriberId: ''
     });
@@ -190,10 +232,27 @@ const AdminTelephone = () => {
 
   const handleEdit = (line) => {
     setEditingLine(line);
+
+    const sbc = (line && typeof line.sbcDetails === 'object' && line.sbcDetails) ? line.sbcDetails : {};
+    const primary = sbc.primary || (sbc.host ? sbc : {});
+    const secondary = sbc.secondary || {};
+
     setFormData({
       lineNumber: line.lineNumber || '',
       lineName: line.lineName || '',
-      sbcDetails: typeof line.sbcDetails === 'object' ? JSON.stringify(line.sbcDetails, null, 2) : line.sbcDetails || '',
+      countryCode: line.countryCode || '',
+      sbcHost: primary.host || sbc.host || '',
+      sbcPort: primary.port !== undefined && primary.port !== null ? String(primary.port) : (sbc.port != null ? String(sbc.port) : ''),
+      sbcUsername: primary.username || sbc.username || '',
+      sbcPassword: primary.password || sbc.password || '',
+      sbcDomain: primary.domain || sbc.domain || '',
+      sbcSecondaryHost: secondary.host || '',
+      sbcSecondaryPort: secondary.port !== undefined && secondary.port !== null ? String(secondary.port) : '',
+      sbcSecondaryUsername: secondary.username || '',
+      sbcSecondaryPassword: secondary.password || '',
+      sbcSecondaryDomain: secondary.domain || '',
+      sbcFailbackToPrimary: sbc.failbackToPrimary !== false,
+      sipRouteId: line.sipRouteId || '',
       connectionDetails: typeof line.connectionDetails === 'object' ? JSON.stringify(line.connectionDetails, null, 2) : line.connectionDetails || '',
       subscriberId: line.subscriberId || ''
     });
@@ -208,15 +267,19 @@ const AdminTelephone = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
-    let sbcDetailsParsed = {};
-    if (formData.sbcDetails.trim()) {
-      try {
-        sbcDetailsParsed = JSON.parse(formData.sbcDetails);
-      } catch (error) {
-        toast.error('Invalid JSON in SBC Details');
-        return;
-      }
+
+    if (!formData.sipRouteId && !formData.sbcHost?.trim()) {
+      toast.error('Select a SIP route or enter SBC host details');
+      return;
+    }
+
+    if (formData.sbcPort && !Number.isFinite(parseInt(formData.sbcPort, 10))) {
+      toast.error('Invalid SBC Port');
+      return;
+    }
+    if (formData.sbcSecondaryPort && !Number.isFinite(parseInt(formData.sbcSecondaryPort, 10))) {
+      toast.error('Invalid secondary SBC Port');
+      return;
     }
 
     let connectionDetailsParsed = {};
@@ -229,13 +292,32 @@ const AdminTelephone = () => {
       }
     }
 
-    saveMutation.mutate({
+    const payload = {
       lineNumber: formData.lineNumber,
       lineName: formData.lineName,
-      sbcDetails: sbcDetailsParsed,
+      countryCode: formData.countryCode || null,
+      sipRouteId: formData.sipRouteId || null,
       connectionDetails: connectionDetailsParsed,
       subscriberId: formData.subscriberId || null
-    });
+    };
+
+    if (formData.sbcHost?.trim()) {
+      Object.assign(payload, {
+        sbcHost: formData.sbcHost,
+        sbcPort: formData.sbcPort,
+        sbcUsername: formData.sbcUsername,
+        sbcPassword: formData.sbcPassword,
+        sbcDomain: formData.sbcDomain,
+        sbcSecondaryHost: formData.sbcSecondaryHost,
+        sbcSecondaryPort: formData.sbcSecondaryPort,
+        sbcSecondaryUsername: formData.sbcSecondaryUsername,
+        sbcSecondaryPassword: formData.sbcSecondaryPassword,
+        sbcSecondaryDomain: formData.sbcSecondaryDomain,
+        sbcFailbackToPrimary: formData.sbcFailbackToPrimary,
+      });
+    }
+
+    saveMutation.mutate(payload);
   };
 
   const handleClose = () => {
@@ -268,6 +350,9 @@ const AdminTelephone = () => {
             <tr>
               <TableHeaderCell>Line Number</TableHeaderCell>
               <TableHeaderCell>Line Name</TableHeaderCell>
+              <TableHeaderCell>AOR</TableHeaderCell>
+              <TableHeaderCell>Country</TableHeaderCell>
+              <TableHeaderCell>SIP Route</TableHeaderCell>
               <TableHeaderCell>Sudo Line Reference</TableHeaderCell>
               <TableHeaderCell>Subscriber</TableHeaderCell>
               <TableHeaderCell>Status</TableHeaderCell>
@@ -279,6 +364,11 @@ const AdminTelephone = () => {
               <TableRow key={line.id}>
                 <TableCell>{line.lineNumber}</TableCell>
                 <TableCell>{line.lineName}</TableCell>
+                <TableCell style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>{line.aor || '-'}</TableCell>
+                <TableCell>{line.countryCode || '-'}</TableCell>
+                <TableCell>
+                  {sipRoutes.find(r => r.id === line.sipRouteId)?.name || (line.sipRouteId ? line.sipRouteId : '-')}
+                </TableCell>
                 <TableCell style={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
                   {line.sudoLineReference}
                 </TableCell>
@@ -325,7 +415,6 @@ const AdminTelephone = () => {
                   <Input
                     value={formData.lineNumber}
                     onChange={(e) => setFormData({ ...formData, lineNumber: e.target.value })}
-                    placeholder="+1234567890"
                     required
                   />
                 </FormGroup>
@@ -335,7 +424,6 @@ const AdminTelephone = () => {
                   <Input
                     value={formData.lineName}
                     onChange={(e) => setFormData({ ...formData, lineName: e.target.value })}
-                    placeholder="Main Office Line"
                     required
                   />
                   <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
@@ -344,15 +432,102 @@ const AdminTelephone = () => {
                 </FormGroup>
 
                 <FormGroup>
-                  <Label>SBC Details (JSON)</Label>
-                  <Textarea
-                    value={formData.sbcDetails}
-                    onChange={(e) => setFormData({ ...formData, sbcDetails: e.target.value })}
-                    placeholder='{"host": "sbc.example.com", "port": 5060, "transport": "udp"}'
-                  />
+                  <Label>Country</Label>
+                  <Select
+                    value={formData.countryCode}
+                    onChange={(e) => setFormData({ ...formData, countryCode: e.target.value })}
+                  >
+                    <option value="">None</option>
+                    {countries.map(c => (
+                      <option key={c.code} value={c.code}>{c.code} - {c.name}</option>
+                    ))}
+                  </Select>
                   <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
-                    Enter SBC configuration as JSON
+                    Determines which outgoing dial plan is applied for dial tone calls
                   </div>
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>SIP Route</Label>
+                  <Select
+                    value={formData.sipRouteId}
+                    onChange={(e) => setFormData({ ...formData, sipRouteId: e.target.value })}
+                  >
+                    <option value="">None (use inline SBC below)</option>
+                    {sipRoutes.map(r => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </Select>
+                  <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>
+                    Optional. When set, trunks from this route are used for registration and outbound gateway selection.
+                  </div>
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>SBC Host</Label>
+                  <Input
+                    value={formData.sbcHost}
+                    onChange={(e) => setFormData({ ...formData, sbcHost: e.target.value })}
+                    placeholder="sbc.example.com"
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>SBC Port</Label>
+                  <Input
+                    value={formData.sbcPort}
+                    onChange={(e) => setFormData({ ...formData, sbcPort: e.target.value })}
+                    placeholder="5060"
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>SBC Username</Label>
+                  <Input
+                    value={formData.sbcUsername}
+                    onChange={(e) => setFormData({ ...formData, sbcUsername: e.target.value })}
+                    placeholder="user"
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>SBC Password</Label>
+                  <Input
+                    type="password"
+                    value={formData.sbcPassword}
+                    onChange={(e) => setFormData({ ...formData, sbcPassword: e.target.value })}
+                    placeholder="password"
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <Label>SBC Domain</Label>
+                  <Input
+                    value={formData.sbcDomain}
+                    onChange={(e) => setFormData({ ...formData, sbcDomain: e.target.value })}
+                    placeholder="sip.example.com"
+                  />
+                </FormGroup>
+
+                <div style={{ fontWeight: 600, marginTop: '0.5rem', marginBottom: '0.25rem' }}>Secondary SBC (failover)</div>
+                <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.5rem' }}>
+                  Alternate route to the same logical SIP line. Host and port required; identity inherits from primary when blank.
+                </div>
+                <FormGroup>
+                  <Label>Secondary SBC Host</Label>
+                  <Input
+                    value={formData.sbcSecondaryHost}
+                    onChange={(e) => setFormData({ ...formData, sbcSecondaryHost: e.target.value })}
+                    placeholder="sbc-backup.example.com"
+                  />
+                </FormGroup>
+                <FormGroup>
+                  <Label>Secondary SBC Port</Label>
+                  <Input
+                    value={formData.sbcSecondaryPort}
+                    onChange={(e) => setFormData({ ...formData, sbcSecondaryPort: e.target.value })}
+                    placeholder="5060"
+                  />
                 </FormGroup>
 
                 <FormGroup>

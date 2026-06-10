@@ -13,9 +13,10 @@ import {
   FiUsers,
   FiRefreshCw,
   FiX,
-  FiMic
+  FiMic,
+  FiTrash2
 } from 'react-icons/fi';
-import { useQuery } from 'react-query';
+import { useMutation, useQuery, useQueryClient } from 'react-query';
 import { theme } from '../../styles/GlobalStyle';
 import api from '../../utils/api';
 import toast from 'react-hot-toast';
@@ -178,6 +179,34 @@ const SelectedRecordingInfo = styled.div`
   }
 `;
 
+const PlaybackBar = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+`;
+
+const PlaybackRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+`;
+
+const PlaybackTime = styled.div`
+  font-size: 0.75rem;
+  color: ${props => props.theme.colors.textSecondary};
+  white-space: nowrap;
+  min-width: 110px;
+  text-align: right;
+`;
+
+const PlaybackSlider = styled.input`
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  accent-color: ${props => props.theme.colors.accent};
+`;
+
 const TableHeader = styled.div`
   padding: 1.5rem;
   border-bottom: 1px solid ${props => props.theme.colors.border};
@@ -305,6 +334,36 @@ const ModalHeader = styled.div`
   margin-bottom: 1.5rem;
 `;
 
+function formatHhMmSsFromMilliseconds(milliseconds) {
+  const ms = Math.max(0, Number(milliseconds) || 0);
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatDateTimeInZone(dateInput, timeZone) {
+  try {
+    if (!dateInput) return '—';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '—';
+    const tz = timeZone ? String(timeZone) : 'UTC';
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz,
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(d);
+  } catch {
+    return '—';
+  }
+}
+
 const ModalTitle = styled.h3`
   font-size: 1.25rem;
   font-weight: 700;
@@ -346,16 +405,71 @@ const MetadataContent = styled.pre`
 
 const AdminRecordings = () => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [sentByFilter, setSentByFilter] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterDateFrom, setFilterDateFrom] = useState('');
   const [filterDateTo, setFilterDateTo] = useState('');
   const [selectedRecording, setSelectedRecording] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [isPlaying, setIsPlaying] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
+  const [playbackSeconds, setPlaybackSeconds] = useState(0);
+  const [durationSeconds, setDurationSeconds] = useState(0);
   const audioRef = useRef(null);
+  const queryClient = useQueryClient();
+
+  const { data: systemSettings } = useQuery(
+    'systemSettings-adminrecordings',
+    async () => {
+      const res = await api.get('/api/system/settings');
+      return res.data?.settings || {};
+    },
+    {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  const deleteMultipleRecordingsMutation = useMutation(
+    async (recordingIds) => {
+      if (!allowDelete) {
+        throw new Error('Recording deletion is disabled by system settings');
+      }
+
+      const ids = Array.isArray(recordingIds) ? recordingIds : [];
+      for (const id of ids)
+      {
+        await api.delete(`/api/recordings/${id}`);
+      }
+      return { count: ids.length };
+    },
+    {
+      onSuccess: (res) => {
+        const count = res?.count ?? 0;
+        toast.success(count > 0 ? `Deleted ${count} recording(s)` : 'Deleted');
+        queryClient.invalidateQueries('admin-recordings');
+        setSelectedIds(new Set());
+        setSelectedRecording(null);
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.error || error.message || 'Failed to delete recordings');
+      }
+    }
+  );
+
+  const handleRefresh = async () => {
+    try {
+      await refetch();
+      toast.success('Recordings refreshed');
+    } catch (e) {
+      toast.error(e?.message || 'Failed to refresh recordings');
+    }
+  };
+
+  const allowDelete = Boolean(systemSettings?.recordings?.allowDeletion);
 
   // Fetch recordings
-  const { data: recordings = [], isLoading, refetch } = useQuery(
+  const { data: recordings = [], isLoading, refetch, isFetching } = useQuery(
     'admin-recordings',
     async () => {
       const response = await api.get('/api/recordings');
@@ -371,12 +485,175 @@ const AdminRecordings = () => {
     }
   );
 
+  const deleteRecordingMutation = useMutation(
+    async (recordingId) => {
+      if (!allowDelete) {
+        throw new Error('Recording deletion is disabled by system settings');
+      }
+      const res = await api.delete(`/api/recordings/${recordingId}`);
+      return res.data;
+    },
+    {
+      onSuccess: () => {
+        toast.success('Recording deleted');
+        queryClient.invalidateQueries('admin-recordings');
+        setSelectedRecording(null);
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.error || error.message || 'Failed to delete recording');
+      }
+    }
+  );
+
+  const handleDeleteSelected = () => {
+    if (!selectedRecording) return;
+    if (!allowDelete) {
+      toast.error('Recording deletion is disabled by system settings');
+      return;
+    }
+    if (window.confirm('Are you sure you want to delete this recording?')) {
+      deleteRecordingMutation.mutate(selectedRecording.id);
+    }
+  };
+
+  const toggleIdSelected = (id) => {
+    const key = String(id || '').trim();
+    if (!key) return;
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const setAllVisibleSelected = (checked) => {
+    setSelectedIds(prev =>
+    {
+      const next = new Set(prev);
+      if (!checked)
+      {
+        for (const r of filteredRecordings)
+        {
+          const id = String(r?.id || '').trim();
+          if (id) next.delete(id);
+        }
+        return next;
+      }
+
+      for (const r of filteredRecordings)
+      {
+        const id = String(r?.id || '').trim();
+        if (id) next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleDeleteChecked = () => {
+    if (!allowDelete) {
+      toast.error('Recording deletion is disabled by system settings');
+      return;
+    }
+
+    const ids = Array.from(selectedIds || []).filter(Boolean);
+    if (ids.length === 0) {
+      toast.error('No recordings selected');
+      return;
+    }
+
+    if (window.confirm(`Delete ${ids.length} selected recording(s)?`)) {
+      deleteMultipleRecordingsMutation.mutate(ids);
+    }
+  };
+
+  const getLineName = (recording) => {
+    try {
+      const meta = recording?.metadata || {};
+      const lineName = meta.lineName || meta.groupName || meta.broadcastName || null;
+      if (lineName && String(lineName).trim().length > 0) return String(lineName).trim();
+    } catch {}
+    return '—';
+  };
+
+  const formatParticipants = (recording) => {
+    const normalizeUsername = (value) => {
+      if (value == null) return '';
+      const s = String(value).trim();
+      if (!s) return '';
+      // Requirement: show username only. If we received a display name like
+      // "Test1 Test1" or "First Last", take the first token.
+      return s.split(/\s+/)[0] || '';
+    };
+
+    const details = recording?.metadata?.participantDetails;
+    if (Array.isArray(details) && details.length > 0) {
+      const namesRaw = details
+        .map(p => p?.userName || p?.username || p?.user?.username || p?.userId)
+        .map(normalizeUsername)
+        .filter(Boolean);
+
+      const seen = new Set();
+      const names = [];
+      for (const n of namesRaw) {
+        const key = String(n).trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        names.push(n);
+      }
+      if (names.length === 0) return '—';
+      if (names.length <= 3) return names.join(', ');
+      return `${names.slice(0, 3).join(', ')} +${names.length - 3}`;
+    }
+
+    const parts = Array.isArray(recording?.participants) ? recording.participants : [];
+    const idsRaw = parts
+      .map(p => (typeof p === 'string' ? p : (p?.userId || p?.id || p)))
+      .map(normalizeUsername)
+      .filter(Boolean);
+
+    const seen = new Set();
+    const ids = [];
+    for (const id of idsRaw) {
+      const key = String(id).trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      ids.push(id);
+    }
+    if (ids.length === 0) return '—';
+    if (ids.length <= 3) return ids.join(', ');
+    return `${ids.slice(0, 3).join(', ')} +${ids.length - 3}`;
+  };
+
+  const getSentBy = (recording) => {
+    const meta = recording?.metadata || {};
+    const raw = meta.uploadedByUsername || meta.uploadedByUserId || meta.uploadedBy || null;
+    if (!raw) return '—';
+    const s = String(raw).trim();
+    return s ? s : '—';
+  };
+
   // Filter recordings
   const filteredRecordings = useMemo(() => {
     return recordings.filter(recording => {
-      const matchesSearch = !searchTerm || 
-        (recording.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (recording.type || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const searchLower = (searchTerm || '').trim().toLowerCase();
+      const matchesSearch = !searchLower || (() => {
+        const id = String(recording?.id || '').toLowerCase();
+        const sentBy = String(getSentBy(recording) || '').toLowerCase();
+        const lineName = String(getLineName(recording) || '').toLowerCase();
+        const type = String(recording?.type || '').toLowerCase();
+        const participants = String(formatParticipants(recording) || '').toLowerCase();
+        return (
+          id.includes(searchLower) ||
+          sentBy.includes(searchLower) ||
+          lineName.includes(searchLower) ||
+          type.includes(searchLower) ||
+          participants.includes(searchLower)
+        );
+      })();
+
+      const sentByLower = (sentByFilter || '').trim().toLowerCase();
+      const matchesSentBy = !sentByLower || String(getSentBy(recording) || '').toLowerCase().includes(sentByLower);
       
       const matchesType = filterType === 'all' || recording.type === filterType;
       
@@ -399,18 +676,45 @@ const AdminRecordings = () => {
         }
       }
       
-      return matchesSearch && matchesType && matchesDate;
+      return matchesSearch && matchesSentBy && matchesType && matchesDate;
     });
-  }, [recordings, searchTerm, filterType, filterDateFrom, filterDateTo]);
+  }, [recordings, searchTerm, sentByFilter, filterType, filterDateFrom, filterDateTo]);
 
   const handleSelectRecording = (recording) => {
     setSelectedRecording(recording);
     setIsPlaying(false);
+    setPlaybackSeconds(0);
+    setDurationSeconds(0);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.src = '';
     }
   };
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTimeUpdate = () => {
+      setPlaybackSeconds(Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+    };
+    const onLoadedMetadata = () => {
+      setDurationSeconds(Number.isFinite(audio.duration) ? audio.duration : 0);
+    };
+    const onEnded = () => {
+      setIsPlaying(false);
+    };
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('ended', onEnded);
+
+    return () => {
+      try { audio.removeEventListener('timeupdate', onTimeUpdate); } catch {}
+      try { audio.removeEventListener('loadedmetadata', onLoadedMetadata); } catch {}
+      try { audio.removeEventListener('ended', onEnded); } catch {}
+    };
+  }, []);
 
   const handlePlay = async () => {
     if (!selectedRecording) return;
@@ -423,7 +727,11 @@ const AdminRecordings = () => {
       const audioUrl = URL.createObjectURL(response.data);
       if (audioRef.current) {
         audioRef.current.src = audioUrl;
-        audioRef.current.play();
+        try {
+          await audioRef.current.play();
+        } catch (e) {
+          throw e;
+        }
         setIsPlaying(true);
       }
     } catch (error) {
@@ -448,7 +756,17 @@ const AdminRecordings = () => {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
       setIsPlaying(false);
+      setPlaybackSeconds(0);
     }
+  };
+
+  const handleSeek = (value) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const v = Number(value);
+    if (!Number.isFinite(v)) return;
+    audio.currentTime = Math.max(0, Math.min(v, durationSeconds || 0));
+    setPlaybackSeconds(audio.currentTime);
   };
 
   const handleExport = async () => {
@@ -481,10 +799,25 @@ const AdminRecordings = () => {
 
   const clearFilters = () => {
     setSearchTerm('');
+    setSentByFilter('');
     setFilterType('all');
     setFilterDateFrom('');
     setFilterDateTo('');
   };
+
+  const allVisibleIds = useMemo(() => {
+    return (filteredRecordings || [])
+      .map(r => String(r?.id || '').trim())
+      .filter(Boolean);
+  }, [filteredRecordings]);
+
+  const allVisibleSelected = useMemo(() => {
+    if (allVisibleIds.length === 0) return false;
+    for (const id of allVisibleIds) {
+      if (!selectedIds.has(id)) return false;
+    }
+    return true;
+  }, [allVisibleIds, selectedIds]);
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -499,7 +832,7 @@ const AdminRecordings = () => {
   return (
     <ThemeProvider theme={theme}>
       <Container>
-        <audio ref={audioRef} onEnded={() => setIsPlaying(false)} />
+        <audio ref={audioRef} onEnded={() => setIsPlaying(false)} style={{ display: 'none' }} />
         
         <FilterPanel>
           <FilterSection>
@@ -509,6 +842,16 @@ const AdminRecordings = () => {
               placeholder="Search recordings..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </FilterSection>
+
+          <FilterSection>
+            <FilterTitle>Sent By</FilterTitle>
+            <SearchInput
+              type="text"
+              placeholder="Search by uploader..."
+              value={sentByFilter}
+              onChange={(e) => setSentByFilter(e.target.value)}
             />
           </FilterSection>
 
@@ -554,14 +897,42 @@ const AdminRecordings = () => {
               <ControlButton
                 $variant="primary"
                 onClick={isPlaying ? handlePause : handlePlay}
+                disabled={!selectedRecording}
               >
                 {isPlaying ? <FiPause /> : <FiPlay />}
                 {isPlaying ? 'Pause' : 'Play'}
               </ControlButton>
-              <ControlButton onClick={handleStop} disabled={!isPlaying}>
+              <ControlButton
+                onClick={handleRefresh}
+                disabled={isLoading || isFetching}
+              >
+                <FiRefreshCw size={16} />
+                Refresh
+              </ControlButton>
+              <ControlButton
+                onClick={handleStop}
+                disabled={!selectedRecording}
+              >
                 <FiSquare />
                 Stop
               </ControlButton>
+
+              <PlaybackBar>
+                <PlaybackRow>
+                  <PlaybackSlider
+                    type="range"
+                    min={0}
+                    max={Math.max(0, durationSeconds || 0)}
+                    step={0.1}
+                    value={Math.min(playbackSeconds, durationSeconds || 0)}
+                    onChange={(e) => handleSeek(e.target.value)}
+                    disabled={!selectedRecording}
+                  />
+                  <PlaybackTime>
+                    {formatHhMmSsFromMilliseconds((playbackSeconds || 0) * 1000)} / {formatHhMmSsFromMilliseconds((durationSeconds || 0) * 1000)}
+                  </PlaybackTime>
+                </PlaybackRow>
+              </PlaybackBar>
               <ControlButton onClick={handleExport}>
                 <FiDownload />
                 Export
@@ -569,6 +940,37 @@ const AdminRecordings = () => {
               <ControlButton onClick={handleViewMetadata}>
                 <FiFileText />
                 View Metadata
+              </ControlButton>
+              {allowDelete && (
+                <ControlButton
+                  onClick={handleDeleteSelected}
+                  disabled={!selectedRecording || deleteRecordingMutation.isLoading}
+                >
+                  <FiTrash2 />
+                  Delete
+                </ControlButton>
+              )}
+            </ControlsBar>
+          )}
+
+          {!selectedRecording && allowDelete && (
+            <ControlsBar>
+              <SelectedRecordingInfo>
+                <strong>Selected:</strong> —
+              </SelectedRecordingInfo>
+              <ControlButton
+                onClick={handleRefresh}
+                disabled={isLoading || isFetching}
+              >
+                <FiRefreshCw size={16} />
+                Refresh
+              </ControlButton>
+              <ControlButton
+                onClick={handleDeleteChecked}
+                disabled={(selectedIds?.size || 0) === 0 || deleteMultipleRecordingsMutation.isLoading}
+              >
+                <FiTrash2 />
+                Delete Selected ({selectedIds?.size || 0})
               </ControlButton>
             </ControlsBar>
           )}
@@ -586,11 +988,22 @@ const AdminRecordings = () => {
               <Table>
                 <TableHead>
                   <TableHeaderRow>
+                    <TableHeaderCell style={{ width: '44px' }}>
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={(e) => setAllVisibleSelected(e.target.checked)}
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={allVisibleIds.length === 0}
+                      />
+                    </TableHeaderCell>
                     <TableHeaderCell>ID</TableHeaderCell>
+                    <TableHeaderCell>Line Name</TableHeaderCell>
                     <TableHeaderCell>Type</TableHeaderCell>
                     <TableHeaderCell>Start Time</TableHeaderCell>
                     <TableHeaderCell>Duration</TableHeaderCell>
                     <TableHeaderCell>Participants</TableHeaderCell>
+                    <TableHeaderCell>Sent By</TableHeaderCell>
                   </TableHeaderRow>
                 </TableHead>
                 <TableBody>
@@ -600,24 +1013,45 @@ const AdminRecordings = () => {
                       $selected={selectedRecording?.id === recording.id}
                       onClick={() => handleSelectRecording(recording)}
                     >
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(String(recording.id || '').trim())}
+                          onChange={() => toggleIdSelected(recording.id)}
+                        />
+                      </TableCell>
                       <TableCell>{recording.id}</TableCell>
+                      <TableCell>{getLineName(recording)}</TableCell>
                       <TableCell>
                         <Badge $variant={recording.type}>
                           {recording.type || 'unknown'}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {recording.startTime 
-                          ? format(new Date(recording.startTime), 'MMM dd, yyyy HH:mm:ss')
-                          : '—'}
+                        {(() => {
+                          const tz = recording.recordingTimezone || 'UTC';
+                          const local = formatDateTimeInZone(recording.startTime, tz);
+                          const utc = formatDateTimeInZone(recording.startTime, 'UTC');
+                          if (local === '—' && utc === '—') return '—';
+                          return (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <div>{local} {tz ? `(${tz})` : ''}</div>
+                              <div style={{ color: '#6b7280', fontSize: '0.75rem' }}>{utc} (UTC)</div>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
-                        {recording.duration 
-                          ? `${Math.floor(recording.duration / 60)}:${String(Math.floor(recording.duration % 60)).padStart(2, '0')}`
-                          : '—'}
+                        {(() => {
+                          const ms = recording.metadata?.durationMs ?? recording.duration;
+                          return ms ? formatHhMmSsFromMilliseconds(ms) : '—';
+                        })()}
                       </TableCell>
                       <TableCell>
-                        {recording.participants?.length || 0}
+                        {formatParticipants(recording)}
+                      </TableCell>
+                      <TableCell>
+                        {getSentBy(recording)}
                       </TableCell>
                     </TableRow>
                   ))}

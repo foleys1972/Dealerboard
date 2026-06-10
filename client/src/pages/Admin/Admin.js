@@ -137,8 +137,26 @@ const StatIcon = styled.div`
 
 const TabsContainer = styled.div`
   display: flex;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
   border-bottom: 1px solid ${props => props.theme.colors.border};
   margin-bottom: ${props => props.theme.spacing.lg};
+
+  &::-webkit-scrollbar {
+    height: 10px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: ${props => props.theme.colors.border};
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
 `;
 
 const Tab = styled.button`
@@ -153,6 +171,7 @@ const Tab = styled.button`
   display: flex;
   align-items: center;
   gap: ${props => props.theme.spacing.sm};
+  flex: 0 0 auto;
 
   &:hover {
     color: ${props => props.theme.colors.primary};
@@ -437,6 +456,58 @@ const Admin = () => {
     activeServers: 1 // Placeholder
   };
 
+  const formatParticipants = (recording) => {
+    const normalizeUsername = (value) => {
+      if (value == null) return '';
+      const s = String(value).trim();
+      if (!s) return '';
+      // Requirement: show username only. If we received a display name like
+      // "Test1 Test1" or "First Last", take the first token.
+      return s.split(/\s+/)[0] || '';
+    };
+
+    const details = recording?.metadata?.participantDetails;
+    if (Array.isArray(details) && details.length > 0) {
+      const namesRaw = details
+        // Requirement: display username only (not first+last display names)
+        .map((p) => p?.userName || p?.username || p?.user?.username || p?.userId)
+        .map(normalizeUsername)
+        .filter(Boolean);
+
+      const seen = new Set();
+      const names = [];
+      for (const n of namesRaw) {
+        const key = String(n).trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        names.push(n);
+      }
+
+      if (names.length === 0) return '—';
+      if (names.length <= 3) return names.join(', ');
+      return `${names.slice(0, 3).join(', ')} +${names.length - 3}`;
+    }
+
+    const parts = Array.isArray(recording?.participants) ? recording.participants : [];
+    const idsRaw = parts
+      .map((p) => (typeof p === 'string' ? p : (p?.userId || p?.id || p)))
+      .map(normalizeUsername)
+      .filter(Boolean);
+
+    const seen = new Set();
+    const ids = [];
+    for (const id of idsRaw) {
+      const key = String(id).trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      ids.push(id);
+    }
+
+    if (ids.length === 0) return '—';
+    if (ids.length <= 3) return ids.join(', ');
+    return `${ids.slice(0, 3).join(', ')} +${ids.length - 3}`;
+  };
+
   // Create user mutation
   const createUserMutation = useMutation(
     async (userData) => {
@@ -550,7 +621,7 @@ const tabs = [
       <AdminHeader>
         <AdminTitle>
           <FiShield />
-          TradePulse Admin Portal
+          TradeCom Admin Portal
         </AdminTitle>
         <AdminActions>
           <Button variant="secondary" onClick={() => window.print()}>
@@ -688,6 +759,8 @@ const UserModal = ({ user, onSubmit, onClose, isLoading }) => {
     username: user?.username || '',
     email: user?.email || '',
     name: user?.name || '',
+    companyName: user?.companyName || '',
+    country: user?.country || '',
     role: user?.role || 'trader',
     isActive: user?.isActive ?? true,
   });
@@ -743,6 +816,32 @@ const UserModal = ({ user, onSubmit, onClose, isLoading }) => {
                   value={formData.name}
                   onChange={handleChange}
                   required
+                />
+              </div>
+
+              <div>
+                <label>Location</label>
+                <Input
+                  value="Tenantless"
+                  disabled
+                />
+              </div>
+
+              <div>
+                <label>Company</label>
+                <Input
+                  name="companyName"
+                  value={formData.companyName}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div>
+                <label>Country</label>
+                <Input
+                  name="country"
+                  value={formData.country}
+                  onChange={handleChange}
                 />
               </div>
               <div>
@@ -827,6 +926,52 @@ const RecordingsPanel = ({ recordings, isLoading, storageUsage, storageLoading }
   const totalDuration = recordings.reduce((sum, rec) => sum + (rec.duration || 0), 0);
   const totalHours = (totalDuration / (1000 * 60 * 60)).toFixed(1);
 
+  const queryClient = useQueryClient();
+
+  const { data: systemSettings } = useQuery(
+    'systemSettings-recordings-adminpanel',
+    async () => {
+      const res = await api.get('/api/system/settings');
+      return res.data?.settings || {};
+    },
+    {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  const allowDelete = Boolean(systemSettings?.recordings?.allowDeletion);
+
+  const deleteRecordingMutation = useMutation(
+    async (recordingId) => {
+      if (!allowDelete) {
+        throw new Error('Recording deletion is disabled');
+      }
+      const response = await api.delete(`/api/recordings/${recordingId}`);
+      return response.data;
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('recordings');
+        queryClient.invalidateQueries('recordingsStorage');
+        toast.success('Recording deleted successfully');
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.error || error.response?.data?.message || 'Failed to delete recording');
+      }
+    }
+  );
+
+  const handleDeleteRecording = (recording) => {
+    if (!allowDelete) {
+      toast.error('Recording deletion is disabled by system settings');
+      return;
+    }
+    if (window.confirm('Are you sure you want to delete this recording?')) {
+      deleteRecordingMutation.mutate(recording.id);
+    }
+  };
+
   return (
     <RecordingSection>
       <RecordingStats>
@@ -896,7 +1041,7 @@ const RecordingsPanel = ({ recordings, isLoading, storageUsage, storageLoading }
               <td>{recording.groupId || 'N/A'}</td>
               <td>{formatDuration(recording.duration)}</td>
               <td>{formatDistanceToNow(new Date(recording.startTime), { addSuffix: true })}</td>
-              <td>{recording.participants?.length || 0}</td>
+              <td>{formatParticipants(recording)}</td>
               <td>
                 <RecordingActions>
                   <Button
@@ -915,6 +1060,14 @@ const RecordingsPanel = ({ recordings, isLoading, storageUsage, storageLoading }
                     onClick={() => window.open(`/api/recordings/metadata/${recording.id}`, '_blank')}
                   >
                     Metadata
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => handleDeleteRecording(recording)}
+                    disabled={!allowDelete || deleteRecordingMutation.isLoading}
+                  >
+                    Delete
                   </Button>
                 </RecordingActions>
               </td>

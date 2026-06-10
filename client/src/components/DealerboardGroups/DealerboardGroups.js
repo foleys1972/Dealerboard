@@ -142,14 +142,20 @@ const MembersModal = ({ group, onClose }) => {
   // Add member mutation
   const addMemberMutation = useMutation(
     async (userId) => {
-      await api.post(`/api/dealerboard/groups/${group.id}/members`, { userId });
+      const res = await api.post(`/api/dealerboard/groups/${group.id}/members`, { userId });
+      return res.data;
     },
     {
-      onSuccess: () => {
+      onSuccess: (data) => {
         queryClient.invalidateQueries(['group-members', group.id]);
+        queryClient.invalidateQueries('dealerboard-groups');
         setShowAddModal(false);
         setSelectedUserId('');
-        toast.success('User added to group');
+        if (data?.syncedAssignmentsFrom) {
+          toast.success('User added — dealerboard layout copied from existing group member');
+        } else {
+          toast.success('User added to group');
+        }
       },
       onError: (error) => {
         toast.error(error.response?.data?.error || 'Failed to add user to group');
@@ -165,6 +171,7 @@ const MembersModal = ({ group, onClose }) => {
     {
       onSuccess: () => {
         queryClient.invalidateQueries(['group-members', group.id]);
+        queryClient.invalidateQueries('dealerboard-groups');
         toast.success('User removed from group');
       },
       onError: (error) => {
@@ -173,13 +180,16 @@ const MembersModal = ({ group, onClose }) => {
     }
   );
 
-  const availableUsers = users.filter(u => !members.find(m => m.id === u.id || m.id === u.userId));
+  const availableUsers = users.filter(u => {
+    const uid = u.userId || u.id;
+    return !members.find(m => m.id === uid);
+  });
 
   return (
     <Modal onClick={onClose}>
       <ModalContent onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
         <ModalHeader>
-          <h3>Group Members: {group.name}</h3>
+          <h3>Group Members: {group.name} ({members.length} {members.length === 1 ? 'member' : 'members'})</h3>
           <Button variant="secondary" onClick={onClose}>
             <FiX />
           </Button>
@@ -390,7 +400,9 @@ const DealerboardGroups = () => {
       </Header>
 
       <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1rem', padding: '1rem', background: '#f3f4f6', borderRadius: '8px' }}>
-        <strong>Note:</strong> When a user in a group is assigned a line (private wire or DDI), the assignment is automatically applied to all members of the group.
+        <strong>Shared dealerboard layout:</strong> Users in the same group share identical dealerboard button assignments
+        (pages 1–10). When you assign a line, speed dial, or other dealerboard key for any member, it applies to all members.
+        New members automatically receive the group&apos;s current layout.
       </div>
 
       {isLoading ? (

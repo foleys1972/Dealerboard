@@ -20,6 +20,7 @@ const BroadcastManagementPanel = () => {
   const [createForm, setCreateForm] = useState({
     name: '',
     description: '',
+    sipUri: '',
     maxListeners: DEFAULT_CONFIG.maxListeners,
     maxSpeakers: DEFAULT_CONFIG.maxSpeakers,
     persistentListen: false,
@@ -104,10 +105,14 @@ const BroadcastManagementPanel = () => {
 
     try {
       setCreating(true);
+
+      const sipUri = (createForm.sipUri || '').trim();
       const payload = {
         name: createForm.name.trim(),
         description: createForm.description.trim(),
         callMode: 'broadcast',
+        sipEnabled: Boolean(sipUri),
+        sipNumbers: sipUri ? [sipUri] : [],
         hootConfig: {
           maxListeners: Number(createForm.maxListeners) || DEFAULT_CONFIG.maxListeners,
           maxSpeakers: Number(createForm.maxSpeakers) || DEFAULT_CONFIG.maxSpeakers,
@@ -123,6 +128,7 @@ const BroadcastManagementPanel = () => {
       setCreateForm({
         name: '',
         description: '',
+        sipUri: '',
         maxListeners: DEFAULT_CONFIG.maxListeners,
         maxSpeakers: DEFAULT_CONFIG.maxSpeakers,
         persistentListen: false,
@@ -141,6 +147,8 @@ const BroadcastManagementPanel = () => {
     try {
       await api.put(`/api/groups/${broadcast.id}`, {
         callMode: 'broadcast',
+        sipEnabled: Boolean((broadcast.sipNumbers || [])[0]),
+        sipNumbers: Array.isArray(broadcast.sipNumbers) ? broadcast.sipNumbers : [],
         hootConfig: broadcast.hootConfig,
       });
       toast.success('Broadcast configuration updated');
@@ -248,6 +256,8 @@ const BroadcastManagementPanel = () => {
           {broadcasts.map((broadcast) => {
             const hootConfig = { ...DEFAULT_CONFIG, ...(broadcast.hootConfig || {}) };
             const hootState = broadcast.hoot?.state;
+            const sipUri = Array.isArray(broadcast.sipNumbers) && broadcast.sipNumbers.length > 0 ? broadcast.sipNumbers[0] : '';
+            const aor = String(broadcast?.metadata?.aor || `BCAST:${broadcast.id}`);
             return (
               <BroadcastItem
                 key={broadcast.id}
@@ -257,6 +267,7 @@ const BroadcastManagementPanel = () => {
                 <BroadcastHeader>
                   <BroadcastName>
                     <strong>{broadcast.name}</strong>
+                    <span style={{ fontFamily: 'monospace' }}>{`AOR: ${aor}`}</span>
                     <span>{broadcast.description || 'No description provided'}</span>
                   </BroadcastName>
                   <Badge $active={hootState?.isActive}>
@@ -281,6 +292,11 @@ const BroadcastManagementPanel = () => {
                     <FiSettings />
                     <span>
                       {hootState?.persistentListenerCount || 0} persistent monitors
+                    </span>
+                  </MetaItem>
+                  <MetaItem title="Broadcast SIP URI">
+                    <span>
+                      {sipUri ? `SIP: ${sipUri}` : 'SIP: (none)'}
                     </span>
                   </MetaItem>
                 </BroadcastMeta>
@@ -373,6 +389,24 @@ const BroadcastManagementPanel = () => {
                 {selectedBroadcast === broadcast.id && (
                   <BroadcastDetails>
                     <DetailGroup>
+                      <label>Internal AOR (for button assignment)</label>
+                      <input type="text" value={aor} readOnly />
+                    </DetailGroup>
+                    <DetailGroup>
+                      <label>Broadcast SIP URI</label>
+                      <input
+                        type="text"
+                        value={sipUri}
+                        placeholder="sip:hoot@domain"
+                        onChange={(e) => {
+                          const next = (e.target.value || '').trim();
+                          updateBroadcastConfig(broadcast.id, {
+                            sipNumbers: next ? [next] : [],
+                          });
+                        }}
+                      />
+                    </DetailGroup>
+                    <DetailGroup>
                       <label>Max Listeners</label>
                       <input
                         type="number"
@@ -453,6 +487,16 @@ const BroadcastManagementPanel = () => {
               value={createForm.description}
               onChange={(e) => setCreateForm((prev) => ({ ...prev, description: e.target.value }))}
               placeholder="Optional description"
+            />
+          </FormGroup>
+
+          <FormGroup>
+            <label>Broadcast SIP URI</label>
+            <input
+              type="text"
+              value={createForm.sipUri}
+              onChange={(e) => setCreateForm((prev) => ({ ...prev, sipUri: e.target.value }))}
+              placeholder="sip:hoot@domain"
             />
           </FormGroup>
 

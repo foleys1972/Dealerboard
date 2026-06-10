@@ -231,13 +231,21 @@ class SubscriberService {
   startHeartbeat() {
     this.stopHeartbeat();
     
-    this.heartbeatTimer = setInterval(() => {
+    this.heartbeatTimer = setInterval(async () => {
       if (this.connection && this.isConnected) {
         try {
+          // Report live load so the publisher can route/overflow users away from
+          // a busy subscriber to its secondary (capacityService never throws).
+          let load = null;
+          try {
+            load = await require('./capacityService').getLocalLoadSnapshot();
+          } catch {}
+
           const heartbeat = {
             type: 'heartbeat',
             serverId: this.serverId,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            load,
           };
           this.connection.send(JSON.stringify(heartbeat));
         } catch (error) {

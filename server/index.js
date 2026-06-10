@@ -95,6 +95,14 @@ class TradingIntercomServer {
     this.publisherSubscriberService = null;
     this._shutdownHandlersRegistered = false;
     this._shutdownInProgress = false;
+
+    // Expose live connected-user count for capacity/load reporting (heartbeat).
+    try {
+      const { setActiveUsersProvider } = require('./services/capacityService');
+      setActiveUsersProvider(() => this.io?.engine?.clientsCount ?? this.connectionCount);
+    } catch (e) {
+      logger.debug('Could not wire capacity active-users provider:', e?.message || e);
+    }
   }
 
   computeLocalServerUrl() {

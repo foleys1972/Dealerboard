@@ -313,6 +313,12 @@ class PublisherSubscriberService {
               const session = this.subscriberSessions.get(subscriberId);
               if (session) {
                 session.lastHeartbeat = new Date();
+                if (message.load) session.load = message.load;
+              }
+
+              // Persist reported load for load-aware routing decisions.
+              if (message.load) {
+                this.updateSubscriberLoad(subscriberId, message.load).catch(() => {});
               }
 
               // Send heartbeat response
@@ -432,13 +438,29 @@ class PublisherSubscriberService {
   async updateSubscriberStatus(subscriberId, status) {
     try {
       await pool.query(
-        `UPDATE subscribers 
+        `UPDATE subscribers
          SET status = $1, last_connected = $2, updated_at = NOW()
          WHERE id = $3`,
         [status, status === 'connected' ? new Date() : null, subscriberId]
       );
     } catch (error) {
       logger.error('Failed to update subscriber status:', error);
+    }
+  }
+
+  // Persist the latest reported load into subscribers.metadata.load so
+  // load-aware routing (auth/subscriberSelection) can read it at login time.
+  async updateSubscriberLoad(subscriberId, load) {
+    try {
+      await pool.query(
+        `UPDATE subscribers
+         SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{load}', $1::jsonb, true),
+             updated_at = NOW()
+         WHERE id = $2`,
+        [JSON.stringify(load), subscriberId]
+      );
+    } catch (error) {
+      logger.error('Failed to update subscriber load:', error);
     }
   }
 

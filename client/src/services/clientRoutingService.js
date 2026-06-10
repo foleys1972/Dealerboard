@@ -8,15 +8,66 @@
  * - Manages connection health and automatic failover
  */
 
+// Shared base-URL normalizer used by API routing (this service), axios setup
+// (utils/api.js), and Socket.IO (useSocket). Historical note: this used to
+// downgrade https→http because the dev backend was plain HTTP; the dev backend
+// now runs TLS (HTTPS_ENABLED=true), so the configured scheme is trusted as-is.
+export function normalizeDevApiUrl(rawBaseUrl) {
+  const normalized = rawBaseUrl ? String(rawBaseUrl).trim() : '';
+  return normalized.replace(/\/+$/, '');
+}
+
 class ClientRoutingService {
   constructor() {
     this.currentHomeserver = null;
     this.failoverHomeservers = [];
     this.healthStatus = new Map(); // Map<homeserverId, status>
     this.isInitialized = false;
-    // Default to explicit API URL, fallback to localhost:5000 if not set
-    this.apiBaseUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+    // Default to explicit API URL, fallback to same-origin for enterprise deployments
+    // (works behind reverse proxies, avoids hardcoding backend ports).
+    this.apiBaseUrl = ClientRoutingService.normalizeDevApiUrl(
+      process.env.REACT_APP_API_URL ||
+      (typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : 'http://localhost:5000')
+    );
     this.defaultApiBase = this.apiBaseUrl;
+  }
+
+  _normalizeBaseUrl(baseUrl) {
+    const raw = baseUrl ? String(baseUrl).trim() : '';
+    if (!raw) return raw;
+
+    let normalized = raw;
+    while (normalized.length > 1 && normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    if (normalized.toLowerCase().endsWith('/api')) {
+      normalized = normalized.slice(0, -4);
+    }
+    while (normalized.length > 1 && normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+
+    return ClientRoutingService.normalizeDevApiUrl(normalized);
+  }
+
+  static normalizeDevApiUrl(rawBaseUrl) {
+    return normalizeDevApiUrl(rawBaseUrl);
+  }
+
+  _notifyRoutingChanged(prevBaseUrl, nextBaseUrl) {
+    try {
+      if (typeof window === 'undefined') return;
+      const prev = prevBaseUrl ? String(prevBaseUrl) : '';
+      const next = nextBaseUrl ? String(nextBaseUrl) : '';
+      if (!next || prev === next) return;
+      window.dispatchEvent(new CustomEvent('client-routing-changed', {
+        detail: { prevBaseUrl: prev, nextBaseUrl: next }
+      }));
+    } catch {
+      // ignore
+    }
   }
 
   /**
@@ -28,11 +79,79 @@ class ClientRoutingService {
     }
 
     try {
+      const prevBaseUrl = this.currentHomeserver?.baseUrl || null;
+
+      // Hybrid site-based routing: allow backend to instruct client to talk to the correct
+      // subscriber for the user's effective site.
+      if (user?.recommendedSubscriberUrl) {
+        const baseUrl = this._normalizeBaseUrl(user.recommendedSubscriberUrl);
+        if (baseUrl) {
+          this.currentHomeserver = {
+            id: `site:${user.effectiveSiteId || 'unknown'}`,
+            baseUrl,
+            region: user.region || null,
+            serverName: `Subscriber (Site ${user.effectiveSiteId || 'unknown'})`,
+            federationUrl: null,
+          };
+          this.failoverHomeservers = [];
+          this.startHealthMonitoring();
+          this.isInitialized = true;
+          this._notifyRoutingChanged(prevBaseUrl, baseUrl);
+          console.log('Client routing initialized (recommendedSubscriberUrl):', {
+            baseUrl,
+            effectiveSiteId: user.effectiveSiteId || null,
+          });
+          return;
+        }
+      }
+
+      // Prefer location-based subscriber routing if provided by the backend.
+      // This is used for per-location subscriber assignments and travel overrides.
+      if (user?.subscriberRouting?.primary?.serverUrl) {
+        const primary = user.subscriberRouting.primary;
+        const routingLocationId = user.routingLocationId || user.locationId || null;
+
+        const primaryBaseUrl = this._normalizeBaseUrl(primary.serverUrl);
+
+        this.currentHomeserver = {
+          id: primary.serverId || primary.subscriberId || 'subscriber-primary',
+          baseUrl: primaryBaseUrl,
+          region: user.region || null,
+          serverName: primary.name || primary.serverId || 'Subscriber (Primary)',
+          federationUrl: null,
+          locationId: routingLocationId
+        };
+
+        // If a secondary exists, treat it as failover.
+        const secondary = user?.subscriberRouting?.secondary;
+        const secondaryBaseUrl = this._normalizeBaseUrl(secondary?.serverUrl);
+        this.failoverHomeservers = secondary?.serverUrl
+          ? [{
+              id: secondary.serverId || secondary.subscriberId || 'subscriber-secondary',
+              baseUrl: secondaryBaseUrl,
+              region: user.region || null,
+              serverName: secondary.name || secondary.serverId || 'Subscriber (Secondary)',
+              federationUrl: null,
+              locationId: routingLocationId
+            }]
+          : [];
+
+        this.startHealthMonitoring();
+        this.isInitialized = true;
+        this._notifyRoutingChanged(prevBaseUrl, this.currentHomeserver?.baseUrl);
+        console.log('Client routing initialized (subscriberRouting):', {
+          serverName: this.currentHomeserver.serverName,
+          baseUrl: this.currentHomeserver.baseUrl,
+          routingLocationId
+        });
+        return;
+      }
+
       // Get user's assigned homeserver from login response
       if (user?.matrixHomeserver) {
         this.currentHomeserver = {
           id: user.matrixHomeserver.id,
-          baseUrl: user.matrixHomeserver.baseUrl,
+          baseUrl: this._normalizeBaseUrl(user.matrixHomeserver.baseUrl),
           region: user.matrixHomeserver.region,
           serverName: user.matrixHomeserver.serverName,
           federationUrl: user.matrixHomeserver.federationUrl
@@ -45,31 +164,38 @@ class ClientRoutingService {
         this.startHealthMonitoring();
 
         this.isInitialized = true;
+        this._notifyRoutingChanged(prevBaseUrl, this.currentHomeserver?.baseUrl);
         console.log('Client routing initialized:', {
           homeserver: this.currentHomeserver.serverName,
           region: this.currentHomeserver.region
         });
       } else {
-        // No homeserver assigned, use default
-        console.warn('No homeserver assigned to user, using default API URL');
+        // No homeserver assigned, use default (this is normal for single-server deployments)
+        // Only log once in development mode to reduce noise
+        if (!this._hasLoggedNoHomeserver && process.env.NODE_ENV === 'development') {
+          console.debug('No homeserver assigned to user, using default API URL (this is normal for single-server deployments)');
+          this._hasLoggedNoHomeserver = true;
+        }
         this.currentHomeserver = {
           id: 'default',
-          baseUrl: this.defaultApiBase,
+          baseUrl: this._normalizeBaseUrl(this.defaultApiBase),
           region: 'US',
           serverName: 'Default Server'
         };
         this.isInitialized = true;
+        this._notifyRoutingChanged(prevBaseUrl, this.currentHomeserver?.baseUrl);
       }
     } catch (error) {
       console.error('Failed to initialize client routing:', error);
       // Fallback to default
       this.currentHomeserver = {
         id: 'default',
-        baseUrl: this.defaultApiBase,
+        baseUrl: this._normalizeBaseUrl(this.defaultApiBase),
         region: 'US',
         serverName: 'Default Server'
       };
       this.isInitialized = true;
+      this._notifyRoutingChanged(this.currentHomeserver?.baseUrl || null, this.defaultApiBase);
     }
   }
 
@@ -93,7 +219,7 @@ class ClientRoutingService {
           .filter(hs => hs.id !== this.currentHomeserver?.id && hs.isActive)
           .map(hs => ({
             id: hs.id,
-            baseUrl: hs.baseUrl,
+            baseUrl: this._normalizeBaseUrl(hs.baseUrl),
             region: hs.region,
             serverName: hs.serverName,
             federationUrl: hs.federationUrl
@@ -131,13 +257,13 @@ class ClientRoutingService {
     }
 
     // Use current homeserver or default - validate URL
-    const homeserverUrl = this.currentHomeserver?.baseUrl;
+    const homeserverUrl = this._normalizeBaseUrl(this.currentHomeserver?.baseUrl);
     if (homeserverUrl && (homeserverUrl.startsWith('http://') || homeserverUrl.startsWith('https://'))) {
       return homeserverUrl;
     }
     
     // Fallback to default if homeserver URL is invalid
-    return this.defaultApiBase;
+    return this._normalizeBaseUrl(this.defaultApiBase);
   }
 
   /**
@@ -155,20 +281,29 @@ class ClientRoutingService {
   }
 
   /**
-   * Start health monitoring for homeservers
+   * Start health monitoring for homeservers with adaptive intervals
+   * - Faster checks (10s) when unhealthy
+   * - Slower checks (60s) when healthy
    */
   startHealthMonitoring() {
     if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
+      clearTimeout(this.healthCheckInterval);
     }
 
-    // Check health every 30 seconds
-    this.healthCheckInterval = setInterval(() => {
-      this.checkHomeserverHealth();
-    }, 30000);
+    const performCheck = () => {
+      this.checkHomeserverHealth().then(() => {
+        // Adaptive interval: faster when unhealthy, slower when healthy
+        const currentHealth = this.getHomeserverHealth(this.currentHomeserver?.id);
+        const isUnhealthy = currentHealth.status === 'unhealthy';
+        const interval = isUnhealthy ? 10000 : 60000; // 10s if unhealthy, 60s if healthy
+
+        // Schedule next check
+        this.healthCheckInterval = setTimeout(performCheck, interval);
+      });
+    };
 
     // Initial check
-    this.checkHomeserverHealth();
+    performCheck();
   }
 
   /**
@@ -203,7 +338,10 @@ class ClientRoutingService {
         });
 
         if (!isHealthy && homeserver.id === this.currentHomeserver?.id) {
-          console.warn(`Current homeserver ${homeserver.serverName} is unhealthy, will use failover`);
+          // Only log in development to reduce noise
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`Current homeserver ${homeserver.serverName} is unhealthy, will use failover`);
+          }
         }
       } catch (error) {
         this.healthStatus.set(homeserver.id, {
@@ -215,7 +353,10 @@ class ClientRoutingService {
         });
 
         if (homeserver.id === this.currentHomeserver?.id) {
-          console.warn(`Current homeserver ${homeserver.serverName} health check failed:`, error.message);
+          // Only log in development to reduce noise
+          if (process.env.NODE_ENV === 'development') {
+            console.warn(`Current homeserver ${homeserver.serverName} health check failed:`, error.message);
+          }
         }
       }
     }
@@ -300,7 +441,7 @@ class ClientRoutingService {
     this.isInitialized = false;
     
     if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
+      clearTimeout(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
   }

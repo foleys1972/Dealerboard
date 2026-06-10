@@ -47,7 +47,7 @@ const UserManagementPanel = () => {
 
   // Load users from API
   useEffect(() => {
-    if (authUser?.role === 'admin') {
+    if (authUser?.role === 'admin' || authUser?.role === 'platform_admin') {
       loadUsers();
     } else {
       setIsLoading(false);

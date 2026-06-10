@@ -489,7 +489,7 @@ const Dashboard = () => {
       <DashboardHeader>
         <DashboardTitle>
           <FiActivity />
-          TradePulse Dashboard
+          TradeCom Dashboard
         </DashboardTitle>
         <DashboardActions>
           <Button variant="secondary" onClick={() => queryClient.invalidateQueries()}>

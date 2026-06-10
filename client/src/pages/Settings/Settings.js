@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import { FiVideo, FiArrowLeft, FiEye, FiEyeOff, FiCheck, FiKey } from 'react-icons/fi';
+import AppSwitcher from '../../components/AppSwitcher/AppSwitcher';
+import { getDefaultHomePath } from '../../utils/navigation';
+import { PRODUCT_NAME } from '../../config/brand';
 import { useAuthStore } from '../../stores/authStore';
 import { useWebRTCStore } from '../../stores/webrtcStore';
 import { useSocket } from '../../hooks/useSocket';
@@ -9,6 +12,30 @@ import api from '../../utils/api';
 import toast from 'react-hot-toast';
 import TeamsTab from '../../components/TeamsTab/TeamsTab';
 import { useQueryClient } from 'react-query';
+
+const PageWrapper = styled.div`
+  min-height: 100vh;
+  background: ${props => props.theme.colors.background};
+`;
+
+const TopBar = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+  background: rgba(21, 21, 32, 0.8);
+  backdrop-filter: blur(10px);
+`;
+
+const Logo = styled.div`
+  font-size: 1.25rem;
+  font-weight: 700;
+  background: ${props => props.theme.colors.gradient};
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+`;
 
 const SettingsContainer = styled.div`
   padding: 2rem;
@@ -31,7 +58,7 @@ const BackButton = styled.button`
   background: transparent;
   border: 1px solid ${props => props.theme.colors.border};
   border-radius: 6px;
-  color: ${props => props.theme.colors.text.primary};
+  color: ${props => props.theme.colors.text};
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
@@ -40,7 +67,7 @@ const BackButton = styled.button`
   
   &:hover {
     background: ${props => props.theme.colors.surface};
-    border-color: ${props => props.theme.colors.primary};
+    border-color: ${props => props.theme.colors.accent};
   }
   
   &:active {
@@ -54,13 +81,13 @@ const HeaderContent = styled.div`
 `;
 
 const SettingsTitle = styled.h1`
-  color: ${props => props.theme.colors.text.primary};
+  color: ${props => props.theme.colors.text};
   font-size: 2rem;
   margin-bottom: 0.5rem;
 `;
 
 const SettingsSubtitle = styled.p`
-  color: ${props => props.theme.colors.text.secondary};
+  color: ${props => props.theme.colors.textSecondary};
   font-size: 1.1rem;
 `;
 
@@ -72,14 +99,14 @@ const SettingsGrid = styled.div`
 `;
 
 const SettingsCard = styled.div`
-  background: ${props => props.theme.colors.background.secondary};
+  background: ${props => props.theme.colors.surface};
   border-radius: 12px;
   padding: 1.5rem;
   border: 1px solid ${props => props.theme.colors.border};
 `;
 
 const CardTitle = styled.h3`
-  color: ${props => props.theme.colors.text.primary};
+  color: ${props => props.theme.colors.text};
   font-size: 1.3rem;
   margin-bottom: 1rem;
   display: flex;
@@ -93,7 +120,7 @@ const FormGroup = styled.div`
 
 const Label = styled.label`
   display: block;
-  color: ${props => props.theme.colors.text.primary};
+  color: ${props => props.theme.colors.text};
   font-weight: 500;
   margin-bottom: 0.5rem;
 `;
@@ -103,14 +130,14 @@ const Input = styled.input`
   padding: 0.75rem;
   border: 1px solid ${props => props.theme.colors.border};
   border-radius: 8px;
-  background: ${props => props.theme.colors.background.primary};
-  color: ${props => props.theme.colors.text.primary};
+  background: ${props => props.theme.colors.surfaceElevated};
+  color: ${props => props.theme.colors.text};
   font-size: 1rem;
   
   &:focus {
     outline: none;
-    border-color: ${props => props.theme.colors.primary};
-    box-shadow: 0 0 0 3px ${props => props.theme.colors.primary}20;
+    border-color: ${props => props.theme.colors.accent};
+    box-shadow: 0 0 0 3px ${props => props.theme.colors.accent}20;
   }
 `;
 
@@ -119,14 +146,14 @@ const Select = styled.select`
   padding: 0.75rem;
   border: 1px solid ${props => props.theme.colors.border};
   border-radius: 8px;
-  background: ${props => props.theme.colors.background.primary};
-  color: ${props => props.theme.colors.text.primary};
+  background: ${props => props.theme.colors.surfaceElevated};
+  color: ${props => props.theme.colors.text};
   font-size: 1rem;
   
   &:focus {
     outline: none;
-    border-color: ${props => props.theme.colors.primary};
-    box-shadow: 0 0 0 3px ${props => props.theme.colors.primary}20;
+    border-color: ${props => props.theme.colors.accent};
+    box-shadow: 0 0 0 3px ${props => props.theme.colors.accent}20;
   }
 `;
 
@@ -135,14 +162,14 @@ const Checkbox = styled.input`
 `;
 
 const CheckboxLabel = styled.label`
-  color: ${props => props.theme.colors.text.primary};
+  color: ${props => props.theme.colors.text};
   display: flex;
   align-items: center;
   cursor: pointer;
 `;
 
 const Button = styled.button`
-  background: ${props => props.theme.colors.primary};
+  background: ${props => props.theme.colors.gradient};
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -153,12 +180,12 @@ const Button = styled.button`
   transition: all 0.2s ease;
   
   &:hover {
-    background: ${props => props.theme.colors.primaryHover};
+    opacity: 0.9;
     transform: translateY(-1px);
   }
   
   &:disabled {
-    background: ${props => props.theme.colors.text.disabled};
+    opacity: 0.5;
     cursor: not-allowed;
     transform: none;
   }
@@ -166,11 +193,11 @@ const Button = styled.button`
 
 const SecondaryButton = styled(Button)`
   background: transparent;
-  color: ${props => props.theme.colors.text.primary};
+  color: ${props => props.theme.colors.text};
   border: 1px solid ${props => props.theme.colors.border};
   
   &:hover {
-    background: ${props => props.theme.colors.background.secondary};
+    background: ${props => props.theme.colors.surface};
     transform: translateY(-1px);
   }
 `;
@@ -196,7 +223,7 @@ const StatusText = styled.span`
 `;
 
 const InfoText = styled.p`
-  color: ${props => props.theme.colors.text.secondary};
+  color: ${props => props.theme.colors.textSecondary};
   font-size: 0.9rem;
   margin-top: 0.5rem;
 `;
@@ -219,7 +246,7 @@ const Tab = styled.button`
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  color: ${props => props.$active ? props.theme.colors.text.primary : props.theme.colors.text.secondary};
+  color: ${props => props.$active ? props.theme.colors.text : props.theme.colors.textSecondary};
   font-size: 0.9375rem;
   font-weight: ${props => props.$active ? 600 : 400};
   cursor: pointer;
@@ -227,13 +254,13 @@ const Tab = styled.button`
   position: relative;
   
   &:hover {
-    color: ${props => props.theme.colors.text.primary};
+    color: ${props => props.theme.colors.text};
     background: ${props => props.theme.colors.surfaceElevated};
   }
   
   ${props => props.$active && `
-    border-bottom-color: ${props.theme.colors.primary};
-    color: ${props.theme.colors.primary};
+    border-bottom-color: ${props.theme.colors.accent};
+    color: ${props.theme.colors.text};
   `}
 `;
 
@@ -245,7 +272,6 @@ const TabContent = styled.div`
 `;
 
 function Settings() {
-  console.log('🎨 Settings component rendering');
   const navigate = useNavigate();
   const location = useLocation();
   const { user, updateUser } = useAuthStore();
@@ -296,6 +322,7 @@ function Settings() {
     notifications: true,
     soundNotifications: true,
     vibrationNotifications: false,
+    lineRingTone: true,
     
     // Display settings
     theme: 'dark',
@@ -518,6 +545,7 @@ function Settings() {
       notifications: true,
       soundNotifications: true,
       vibrationNotifications: false,
+      lineRingTone: true,
       theme: 'dark',
       fontSize: 'medium',
       showParticipantAvatars: true,
@@ -624,25 +652,15 @@ function Settings() {
     user?.teamsEnabled === 'true'
   );
   
-  // Debug logging
-  useEffect(() => {
-    console.log('🔍 Zoom/Teams tab visibility check:', {
-      zoomEnabled,
-      teamsEnabled,
-      localZoomEnabled,
-      localTeamsEnabled,
-      userZoomEnabled: user?.zoomEnabled,
-      userTeamsEnabled: user?.teamsEnabled,
-      activeTab,
-      tabsShouldRender: 'ALWAYS - tabs are now permanent'
-    });
-    console.log('🎨 Rendering Settings page with tabs - Zoom and Teams tabs should always be visible');
-  }, [zoomEnabled, teamsEnabled, localZoomEnabled, localTeamsEnabled, user?.zoomEnabled, user?.teamsEnabled, activeTab]);
-
   return (
+    <PageWrapper>
+      <TopBar>
+        <Logo>{PRODUCT_NAME}</Logo>
+        <AppSwitcher />
+      </TopBar>
     <SettingsContainer>
       <SettingsHeader>
-        <BackButton onClick={() => navigate('/')} title="Back to Intercom">
+        <BackButton onClick={() => navigate(getDefaultHomePath(user))} title="Back to home">
           <FiArrowLeft />
           <span>Back</span>
         </BackButton>
@@ -659,10 +677,7 @@ function Settings() {
         <Tab 
           key="zoom"
           $active={activeTab === 'zoom'} 
-          onClick={() => {
-            console.log('🎯 Zoom tab clicked');
-            setActiveTab('zoom');
-          }}
+          onClick={() => setActiveTab('zoom')}
         >
           <FiVideo />
           <span>Zoom</span>
@@ -670,10 +685,7 @@ function Settings() {
         <Tab 
           key="teams"
           $active={activeTab === 'teams'} 
-          onClick={() => {
-            console.log('🎯 Teams tab clicked');
-            setActiveTab('teams');
-          }}
+          onClick={() => setActiveTab('teams')}
         >
           <FiVideo />
           <span>Microsoft Teams</span>
@@ -943,6 +955,18 @@ function Settings() {
               Vibration Notifications
             </CheckboxLabel>
             <InfoText>Vibrate on mobile devices when notifications arrive</InfoText>
+          </FormGroup>
+
+          <FormGroup>
+            <CheckboxLabel>
+              <Checkbox
+                type="checkbox"
+                checked={settings.lineRingTone !== false}
+                onChange={(e) => handleSettingChange('lineRingTone', e.target.checked)}
+              />
+              Dealerboard Ring Tone
+            </CheckboxLabel>
+            <InfoText>Play an audible ring when a line on your dealerboard is ringing</InfoText>
           </FormGroup>
         </SettingsCard>
 
@@ -1294,6 +1318,7 @@ function Settings() {
         </TabContent>
       )}
     </SettingsContainer>
+    </PageWrapper>
   );
 }
 

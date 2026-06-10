@@ -16,13 +16,17 @@ import {
   FiEye,
   FiEyeOff,
   FiGrid,
-  FiCopy
+  FiRadio,
+  FiCopy,
+  FiTrash2,
+  FiMapPin
 } from 'react-icons/fi';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { theme } from '../../styles/GlobalStyle';
 import api from '../../utils/api';
 import toast from 'react-hot-toast';
 import UserDealerboardConfig from '../UserDealerboardConfig/UserDealerboardConfig';
+import UserIntercomConfig from '../UserIntercomConfig/UserIntercomConfig';
 import CopyUserModal from '../CopyUserModal/CopyUserModal';
 import { useAuthStore } from '../../stores/authStore';
 import { useSocket } from '../../hooks/useSocket';
@@ -32,6 +36,152 @@ const Container = styled.div`
   height: 100%;
   gap: 1rem;
 `;
+
+const TravelOverrideModal = ({ user, locations, activeOverride, loading, onClose, onCreate, onRevoke }) => {
+  const [formData, setFormData] = useState({
+    travelLocationId: activeOverride?.travelLocationId || '',
+    expiresAt: '',
+    forceOrigin: false,
+    reason: '',
+  });
+
+  useEffect(() => {
+    setFormData({
+      travelLocationId: activeOverride?.travelLocationId || '',
+      expiresAt: '',
+      forceOrigin: false,
+      reason: '',
+    });
+  }, [activeOverride, user?.id, user?.userId]);
+
+  const label = user?.displayName || user?.name || user?.username || user?.id || user?.userId;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.travelLocationId) {
+      toast.error('Travel location is required');
+      return;
+    }
+    if (!formData.expiresAt) {
+      toast.error('Expiry is required');
+      return;
+    }
+
+    const expiresAtIso = new Date(formData.expiresAt).toISOString();
+    onCreate({
+      travelLocationId: formData.travelLocationId,
+      expiresAt: expiresAtIso,
+      forceOrigin: formData.forceOrigin,
+      reason: formData.reason,
+    });
+  };
+
+  return (
+    <Modal onClick={onClose}>
+      <ModalContent onClick={(e) => e.stopPropagation()}>
+        <ModalHeader>
+          <ModalTitle>Travel Override - {label}</ModalTitle>
+          <ModalCloseButton onClick={onClose}>
+            <FiX />
+          </ModalCloseButton>
+        </ModalHeader>
+
+        {loading ? (
+          <ModalBody>
+            <div>Loading...</div>
+          </ModalBody>
+        ) : (
+          <>
+            <ModalBody>
+              <div style={{ padding: '1rem', background: theme.colors.surfaceElevated, borderRadius: theme.borderRadius.md }}>
+                {activeOverride ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                    <div style={{ fontWeight: 600, color: theme.colors.text }}>
+                      Active override: {activeOverride.travelLocationName || activeOverride.travelLocationId}
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: theme.colors.textSecondary }}>
+                      Expires: {activeOverride.expiresAt ? new Date(activeOverride.expiresAt).toLocaleString() : '—'}
+                    </div>
+                    <div style={{ fontSize: '0.875rem', color: theme.colors.textSecondary }}>
+                      Force origin: {activeOverride.forceOrigin ? 'Yes' : 'No'}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ color: theme.colors.textSecondary }}>No active travel override</div>
+                )}
+              </div>
+
+              {activeOverride && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <ModalButton type="button" onClick={() => onRevoke(activeOverride.id)}>
+                    <FiXCircle />
+                    Revoke Override
+                  </ModalButton>
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit}>
+                <FormGroup>
+                  <FormLabel>Travel Location *</FormLabel>
+                  <FormSelect
+                    value={formData.travelLocationId}
+                    onChange={(e) => setFormData({ ...formData, travelLocationId: e.target.value })}
+                    required
+                  >
+                    <option value="">Select location</option>
+                    {Array.isArray(locations) && locations.map((l) => (
+                      <option key={l.id} value={l.id}>{l.name}</option>
+                    ))}
+                  </FormSelect>
+                </FormGroup>
+
+                <FormGroup>
+                  <FormLabel>Expires At *</FormLabel>
+                  <FormInput
+                    type="datetime-local"
+                    value={formData.expiresAt}
+                    onChange={(e) => setFormData({ ...formData, expiresAt: e.target.value })}
+                    required
+                  />
+                </FormGroup>
+
+                <FormGroup>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.forceOrigin}
+                      onChange={(e) => setFormData({ ...formData, forceOrigin: e.target.checked })}
+                    />
+                    <span style={{ color: theme.colors.text }}>Force origin to travel location (affects recording origin)</span>
+                  </label>
+                </FormGroup>
+
+                <FormGroup>
+                  <FormLabel>Reason</FormLabel>
+                  <FormInput
+                    value={formData.reason}
+                    onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                    placeholder="Optional"
+                  />
+                </FormGroup>
+
+                <ModalFooter>
+                  <ModalButton type="button" onClick={onClose}>
+                    Cancel
+                  </ModalButton>
+                  <ModalButton $primary type="submit">
+                    <FiCheck />
+                    Set Override
+                  </ModalButton>
+                </ModalFooter>
+              </form>
+            </ModalBody>
+          </>
+        )}
+      </ModalContent>
+    </Modal>
+  );
+};
 
 const FilterPanel = styled.div`
   width: 280px;
@@ -609,6 +759,30 @@ const EditUserModal = ({ user, onClose, onSave }) => {
                 onChange={(e) => setFormData({ ...formData, department: e.target.value })}
               />
             </FormGroup>
+
+            <FormGroup>
+              <FormLabel>Location</FormLabel>
+              <FormInput
+                value={user.locationName || ''}
+                disabled
+              />
+            </FormGroup>
+
+            <FormGroup>
+              <FormLabel>Company</FormLabel>
+              <FormInput
+                value={formData.companyName}
+                onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+              />
+            </FormGroup>
+
+            <FormGroup>
+              <FormLabel>Country</FormLabel>
+              <FormInput
+                value={formData.country}
+                onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+              />
+            </FormGroup>
             <FormGroup>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                 <input
@@ -936,14 +1110,70 @@ const AdminUserManagement = () => {
   const [resettingUser, setResettingUser] = useState(null);
   const [showDealerboardModal, setShowDealerboardModal] = useState(false);
   const [dealerboardUser, setDealerboardUser] = useState(null);
+  const [showIntercomModal, setShowIntercomModal] = useState(false);
+  const [intercomUser, setIntercomUser] = useState(null);
   const [showCopyUserModal, setShowCopyUserModal] = useState(false);
   const [copyingUser, setCopyingUser] = useState(null);
+  const [showTravelOverrideModal, setShowTravelOverrideModal] = useState(false);
+  const [travelOverrideUser, setTravelOverrideUser] = useState(null);
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuthStore();
-  const { isConnected } = useSocket();
+  const { isConnected, socket } = useSocket();
+
+  // Live presence updates (online/offline) from Socket.IO
+  useEffect(() => {
+    if (!socket) return;
+
+    const handlePresenceUpdate = (data) => {
+      try {
+        const userId = data?.userId != null ? String(data.userId) : '';
+        const username = data?.username != null ? String(data.username) : '';
+        const online = data?.online === true;
+
+        // Admin user list uses a string query key: 'admin-users'
+        queryClient.setQueryData('admin-users', (oldData) => {
+          if (!oldData || !Array.isArray(oldData)) return oldData;
+
+          return oldData.map((u) => {
+            const uid = u?.userId != null ? String(u.userId) : '';
+            const id = u?.id != null ? String(u.id) : '';
+            const un = u?.username != null ? String(u.username) : '';
+
+            const match = (userId && (userId === uid || userId === id)) || (username && username === un);
+            if (!match) return u;
+
+            return {
+              ...u,
+              status: online ? 'online' : 'offline',
+              isOnline: online,
+            };
+          });
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    socket.on('presence-update', handlePresenceUpdate);
+    return () => {
+      socket.off('presence-update', handlePresenceUpdate);
+    };
+  }, [socket, queryClient]);
 
   // Check if user is admin
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'platform_admin';
+  const isPlatformAdmin = currentUser?.role === 'platform_admin';
+
+  const { data: locations = [] } = useQuery(
+    'admin-locations',
+    async () => {
+      const res = await api.get('/api/locations');
+      return res.data?.locations || [];
+    },
+    {
+      enabled: isPlatformAdmin,
+    }
+  );
 
   // Fetch users
   const { data: users = [], isLoading, error: usersError } = useQuery(
@@ -1031,6 +1261,16 @@ const AdminUserManagement = () => {
     setDealerboardUser(null);
   };
 
+  const handleConfigureIntercom = (user) => {
+    setIntercomUser(user);
+    setShowIntercomModal(true);
+  };
+
+  const handleCloseIntercom = () => {
+    setShowIntercomModal(false);
+    setIntercomUser(null);
+  };
+
   const handleCopyUser = (user) => {
     setCopyingUser(user);
     setShowCopyUserModal(true);
@@ -1040,6 +1280,67 @@ const AdminUserManagement = () => {
     setShowCopyUserModal(false);
     setCopyingUser(null);
   };
+
+  const handleOpenTravelOverride = (user) => {
+    setTravelOverrideUser(user);
+    setShowTravelOverrideModal(true);
+  };
+
+  const handleCloseTravelOverride = () => {
+    setShowTravelOverrideModal(false);
+    setTravelOverrideUser(null);
+  };
+
+  const { data: activeTravelOverridesData, isLoading: loadingActiveTravelOverride } = useQuery(
+    ['activeTravelOverride', travelOverrideUser?.id || travelOverrideUser?.userId],
+    async () => {
+      const userId = travelOverrideUser?.id || travelOverrideUser?.userId;
+      if (!userId) return [];
+      const res = await api.get(`/api/platform-admin/travel-overrides?activeOnly=true&userId=${encodeURIComponent(String(userId))}`);
+      return res.data?.overrides || [];
+    },
+    {
+      enabled: isPlatformAdmin && showTravelOverrideModal && !!(travelOverrideUser?.id || travelOverrideUser?.userId),
+    }
+  );
+
+  const createTravelOverrideMutation = useMutation(
+    async ({ userId, travelLocationId, expiresAt, forceOrigin, reason }) => {
+      const res = await api.post('/api/platform-admin/travel-overrides', {
+        userId,
+        travelLocationId,
+        expiresAt,
+        forceOrigin,
+        reason,
+      });
+      return res.data;
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['activeTravelOverride', travelOverrideUser?.id || travelOverrideUser?.userId]);
+        toast.success('Travel override set');
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.error || 'Failed to set travel override');
+      }
+    }
+  );
+
+  const revokeTravelOverrideMutation = useMutation(
+    async ({ id }) => {
+      const res = await api.post(`/api/platform-admin/travel-overrides/${encodeURIComponent(String(id))}/revoke`);
+      return res.data;
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries(['activeTravelOverride', travelOverrideUser?.id || travelOverrideUser?.userId]);
+        toast.success('Travel override revoked');
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.error || 'Failed to revoke travel override');
+      }
+    }
+  );
 
   // Reset password mutation
   const resetPasswordMutation = useMutation(
@@ -1066,6 +1367,43 @@ const AdminUserManagement = () => {
       }
     }
   );
+
+  const deleteUserMutation = useMutation(
+    async (userId) => {
+      const res = await api.delete(`/api/auth/users/${userId}`);
+      return res.data;
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('admin-users');
+        toast.success('User deleted successfully');
+      },
+      onError: (error) => {
+        toast.error(error.response?.data?.error || 'Failed to delete user');
+      }
+    }
+  );
+
+  const handleDeleteUser = (user) => {
+    const userId = user?.id || user?.userId;
+    if (!userId) {
+      toast.error('Cannot delete user: missing user id');
+      return;
+    }
+
+    if (currentUser && (currentUser.id === userId || currentUser.username === userId)) {
+      toast.error('You cannot delete your own account');
+      return;
+    }
+
+    const label = user?.displayName || user?.name || user?.username || userId;
+    const ok = window.confirm(`Delete user "${label}"? This cannot be undone.`);
+    if (!ok) {
+      return;
+    }
+
+    deleteUserMutation.mutate(userId);
+  };
 
   const clearFilters = () => {
     setSearchTerm('');
@@ -1214,19 +1552,25 @@ const AdminUserManagement = () => {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge $variant={user.isActive !== false ? 'active' : 'inactive'}>
-                          {user.isActive !== false ? (
-                            <>
-                              <FiCheck style={{ marginRight: '0.25rem' }} />
-                              Active
-                            </>
-                          ) : (
-                            <>
-                              <FiXCircle style={{ marginRight: '0.25rem' }} />
-                              Inactive
-                            </>
-                          )}
-                        </Badge>
+                        {(() => {
+                          const rawStatus = (user?.status || '').toString().toLowerCase();
+                          const online = user?.isOnline === true || (rawStatus && rawStatus !== 'offline');
+                          return (
+                            <Badge $variant={online ? 'active' : 'inactive'}>
+                              {online ? (
+                                <>
+                                  <FiRadio style={{ marginRight: '0.25rem' }} />
+                                  Online
+                                </>
+                              ) : (
+                                <>
+                                  <FiXCircle style={{ marginRight: '0.25rem' }} />
+                                  Offline
+                                </>
+                              )}
+                            </Badge>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>{user.source || 'local'}</TableCell>
                       <TableCell>{user.extension || '—'}</TableCell>
@@ -1235,6 +1579,11 @@ const AdminUserManagement = () => {
                           <ActionButton onClick={() => handleDoubleClick(user)} title="Edit User">
                             <FiEdit />
                           </ActionButton>
+                          {isPlatformAdmin && (
+                            <ActionButton onClick={() => handleOpenTravelOverride(user)} title="Travel Override">
+                              <FiMapPin />
+                            </ActionButton>
+                          )}
                           <ActionButton 
                             onClick={() => handleCopyUser(user)} 
                             title="Copy User"
@@ -1247,6 +1596,12 @@ const AdminUserManagement = () => {
                           >
                             <FiGrid />
                           </ActionButton>
+                          <ActionButton 
+                            onClick={() => handleConfigureIntercom(user)} 
+                            title="Configure Intercom"
+                          >
+                            <FiRadio />
+                          </ActionButton>
                           {user.source === 'local' && (
                             <ActionButton 
                               onClick={() => handleResetPassword(user)} 
@@ -1256,6 +1611,14 @@ const AdminUserManagement = () => {
                               <FiKey />
                             </ActionButton>
                           )}
+                          <ActionButton
+                            onClick={() => handleDeleteUser(user)}
+                            title="Delete User"
+                            disabled={deleteUserMutation.isLoading}
+                            $warning
+                          >
+                            <FiTrash2 />
+                          </ActionButton>
                         </ActionButtonGroup>
                       </TableCell>
                     </TableRow>
@@ -1348,10 +1711,41 @@ const AdminUserManagement = () => {
           />
         )}
 
+        {showIntercomModal && intercomUser && (
+          <UserIntercomConfig
+            userId={intercomUser.id || intercomUser.userId}
+            userName={intercomUser.displayName || intercomUser.name || intercomUser.username}
+            onClose={handleCloseIntercom}
+          />
+        )}
+
         {showCopyUserModal && copyingUser && (
           <CopyUserModal
             user={copyingUser}
             onClose={handleCloseCopyUser}
+          />
+        )}
+
+        {showTravelOverrideModal && travelOverrideUser && isPlatformAdmin && (
+          <TravelOverrideModal
+            user={travelOverrideUser}
+            locations={locations}
+            loading={loadingActiveTravelOverride}
+            activeOverride={Array.isArray(activeTravelOverridesData) && activeTravelOverridesData.length > 0 ? activeTravelOverridesData[0] : null}
+            onClose={handleCloseTravelOverride}
+            onCreate={({ travelLocationId, expiresAt, forceOrigin, reason }) => {
+              const userId = travelOverrideUser.id || travelOverrideUser.userId;
+              createTravelOverrideMutation.mutate({
+                userId,
+                travelLocationId,
+                expiresAt,
+                forceOrigin,
+                reason,
+              });
+            }}
+            onRevoke={(id) => {
+              revokeTravelOverrideMutation.mutate({ id });
+            }}
           />
         )}
       </Container>

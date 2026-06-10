@@ -1,10 +1,10 @@
 {
-  "short_name": "Trading Intercom",
-  "name": "Trading Intercom System",
+  "short_name": "TradeCom",
+  "name": "TradeCom Trading Communications",
   "description": "Financial trading intercom system with WebRTC audio communication",
   "icons": [
     {
-      "src": "favicon.ico",
+      "src": "UC.ico",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/x-icon"
     },
@@ -19,21 +19,21 @@
       "sizes": "512x512"
     }
   ],
-  "start_url": ".",
+  "start_url": "/intercom",
   "display": "standalone",
-  "theme_color": "#1a1a1a",
-  "background_color": "#ffffff",
-  "orientation": "portrait-primary",
+  "theme_color": "#0a0a0f",
+  "background_color": "#0a0a0f",
+  "orientation": "any",
   "categories": ["business", "finance", "communication"],
   "lang": "en",
   "scope": "/",
   "prefer_related_applications": false,
   "shortcuts": [
     {
-      "name": "Join Group",
-      "short_name": "Join",
-      "description": "Quickly join an intercom group",
-      "url": "/join",
+      "name": "Trading Floor",
+      "short_name": "Trading",
+      "description": "Open the trading intercom",
+      "url": "/intercom",
       "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
     },
     {

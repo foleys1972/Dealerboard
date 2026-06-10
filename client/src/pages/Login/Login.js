@@ -5,14 +5,28 @@ import { FiMic, FiUser, FiLock, FiEye, FiEyeOff } from 'react-icons/fi';
 import { useAuthStore } from '../../stores/authStore';
 import { Button, Input, Card, FormGroup, Flex, Spacer } from '../../styles/GlobalStyle';
 import toast from 'react-hot-toast';
+import { PRODUCT_NAME } from '../../config/brand';
 
 const LoginContainer = styled.div`
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: ${props => props.theme.colors.background};
   padding: ${props => props.theme.spacing.lg};
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 20% 50%, rgba(6, 182, 212, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(16, 185, 129, 0.1) 0%, transparent 50%),
+      radial-gradient(ellipse at 60% 80%, rgba(6, 182, 212, 0.08) 0%, transparent 40%);
+    pointer-events: none;
+  }
 `;
 
 const LoginCard = styled(Card)`
@@ -34,8 +48,26 @@ const Logo = styled.div`
   gap: ${props => props.theme.spacing.sm};
   font-size: 2rem;
   font-weight: 700;
-  color: ${props => props.theme.colors.primary};
   margin-bottom: ${props => props.theme.spacing.sm};
+`;
+
+const BrandIcon = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: ${props => props.theme.borderRadius.lg};
+  background: ${props => props.theme.colors.gradient};
+  color: white;
+  font-size: 1.25rem;
+`;
+
+const BrandName = styled.span`
+  background: ${props => props.theme.colors.gradient};
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 `;
 
 const Title = styled.h1`
@@ -220,11 +252,11 @@ const Login = () => {
         <LoginCard>
           <LoginHeader>
             <Logo>
-              <FiMic />
-              Trading Intercom
+              <BrandIcon><FiMic /></BrandIcon>
+              <BrandName>{PRODUCT_NAME}</BrandName>
             </Logo>
-            <Title>Welcome Back</Title>
-            <Subtitle>Sign in to your trading intercom account</Subtitle>
+            <Title>Welcome back</Title>
+            <Subtitle>Sign in to your trading communications platform</Subtitle>
           </LoginHeader>
 
           <Form onSubmit={handleSubmit}>
@@ -278,7 +310,7 @@ const Login = () => {
 
             <LoginButton
               type="submit"
-              variant="primary"
+              variant="accent"
               disabled={isLoading}
             >
               {isLoading && <LoadingSpinner />}
@@ -298,8 +330,13 @@ const Login = () => {
             </Button>
             <Spacer size="sm" />
             <FooterText>
-              Secure trading communications with WebRTC audio<br/>
-              <small>Admin: admin/admin | Trader: trader1/trader123</small>
+              Secure trading communications with WebRTC audio
+              {process.env.NODE_ENV === 'development' && (
+                <>
+                  <br />
+                  <small>Demo: admin/admin or trader1/trader123</small>
+                </>
+              )}
             </FooterText>
           </LoginFooter>
         </LoginCard>

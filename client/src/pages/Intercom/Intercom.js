@@ -9,12 +9,12 @@ import {
   FiRefreshCw,
   FiGrid,
   FiVideo,
+  FiUsers,
   FiChevronLeft,
   FiChevronRight,
   FiBell,
   FiX,
-  FiCheckCircle,
-  FiSettings
+  FiCheckCircle
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
@@ -27,6 +27,11 @@ import VoiceTab from './VoiceTab';
 import MessagingTab from './MessagingTab';
 import DealerboardTab from './DealerboardTab';
 import ZoomTab from '../../components/ZoomTab/ZoomTab';
+import TeamsTab from '../../components/TeamsTab/TeamsTab';
+import AppSwitcher from '../../components/AppSwitcher/AppSwitcher';
+import OnboardingTour from '../../components/OnboardingTour/OnboardingTour';
+import { PRODUCT_NAME } from '../../config/brand';
+import { useInstantIntercomWebRTC } from '../../hooks/useInstantIntercomWebRTC';
 
 const Container = styled.div`
   display: flex;
@@ -56,6 +61,12 @@ const Header = styled.div`
   justify-content: space-between;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 10;
+  gap: 1rem;
+  flex-wrap: wrap;
+
+  @media (max-width: ${props => props.theme.breakpoints.md}) {
+    padding: 0.75rem 1rem;
+  }
 `;
 
 const Logo = styled.div`
@@ -68,10 +79,23 @@ const Logo = styled.div`
   letter-spacing: -0.02em;
 `;
 
+const HeaderLeft = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+`;
+
 const HeaderRight = styled.div`
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
+
+  @media (max-width: ${props => props.theme.breakpoints.md}) {
+    gap: 0.5rem;
+  }
 `;
 
 const ConnectionStatus = styled.div`
@@ -262,30 +286,6 @@ const RefreshButton = styled.button`
   }
 `;
 
-const SettingsButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1rem;
-  background: rgba(139, 92, 246, 0.1);
-  border: 1px solid rgba(139, 92, 246, 0.3);
-  border-radius: 6px;
-  color: #8b5cf6;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  
-  &:hover {
-    background: rgba(139, 92, 246, 0.2);
-    border-color: rgba(139, 92, 246, 0.5);
-  }
-  
-  &:active {
-    transform: scale(0.98);
-  }
-`;
-
 const TabsContainer = styled.div`
   display: flex;
   gap: 0.5rem;
@@ -293,6 +293,16 @@ const TabsContainer = styled.div`
   border-bottom: 1px solid ${props => props.theme.colors.border};
   background: ${props => props.theme.colors.surface};
   padding: 0 2rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  @media (max-width: ${props => props.theme.breakpoints.md}) {
+    padding: 0 1rem;
+  }
 `;
 
 const PaginationContainer = styled.div`
@@ -334,6 +344,7 @@ const Tab = styled.button`
   align-items: center;
   gap: 0.5rem;
   padding: 1rem 1.5rem;
+  flex-shrink: 0;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
@@ -367,10 +378,14 @@ const Intercom = () => {
   const { socket, isConnected: socketConnected, reconnect: reconnectSocket } = useSocket();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('dealerboard'); // 'dealerboard', 'voice', 'messaging', or 'zoom'
+  const [activeTab, setActiveTab] = useState('dealerboard');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dealerboardPage, setDealerboardPage] = useState(1);
   const [profileUpdateNotification, setProfileUpdateNotification] = useState(null);
+
+  // Keep instant intercom WebRTC media running regardless of which Intercom tab is active.
+  // Without this, being on Dealerboard can prevent producing/consuming audio for instant calls.
+  useInstantIntercomWebRTC();
 
   const handleLogout = () => {
     logout();
@@ -446,6 +461,7 @@ const Intercom = () => {
 
   return (
     <Container>
+      <OnboardingTour />
       {profileUpdateNotification && (
         <NotificationBanner>
           <FiBell style={{ color: '#06b6d4', fontSize: '1.25rem', flexShrink: 0 }} />
@@ -472,8 +488,9 @@ const Intercom = () => {
         </NotificationBanner>
       )}
       <Header>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <Logo>TradePulse</Logo>
+        <HeaderLeft>
+          <Logo>{PRODUCT_NAME}</Logo>
+          <AppSwitcher />
           <ConnectionStatus 
             $isOnline={socketConnected}
             onClick={() => !socketConnected && reconnectSocket()}
@@ -483,19 +500,12 @@ const Intercom = () => {
             <StatusDot $isOnline={socketConnected} />
             <span>{socketConnected ? 'Online' : 'Offline'}</span>
           </ConnectionStatus>
-        </div>
+        </HeaderLeft>
         <HeaderRight>
           <UserInfo>
             <FiUser />
             <span>@{user?.username || user?.name || 'User'}</span>
           </UserInfo>
-          <SettingsButton 
-            onClick={() => navigate('/settings')} 
-            title="Settings"
-          >
-            <FiSettings />
-            <span>Settings</span>
-          </SettingsButton>
           <RefreshButton 
             onClick={handleRefreshToken} 
             disabled={isRefreshing}
@@ -540,6 +550,13 @@ const Intercom = () => {
           <FiVideo />
           <span>Zoom</span>
         </Tab>
+        <Tab 
+          $active={activeTab === 'teams'} 
+          onClick={() => setActiveTab('teams')}
+        >
+          <FiUsers />
+          <span>Teams</span>
+        </Tab>
         
         {activeTab === 'dealerboard' && (
           <PaginationContainer>
@@ -567,6 +584,7 @@ const Intercom = () => {
         {activeTab === 'voice' && <VoiceTab />}
         {activeTab === 'messaging' && <MessagingTab />}
         {activeTab === 'zoom' && <ZoomTab />}
+        {activeTab === 'teams' && <TeamsTab />}
       </TabContent>
     </Container>
   );

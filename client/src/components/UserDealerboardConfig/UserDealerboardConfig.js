@@ -5,6 +5,10 @@ import { useQuery, useMutation, useQueryClient } from 'react-query';
 import api from '../../utils/api';
 import toast from 'react-hot-toast';
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Select, Input } from '../../styles/GlobalStyle';
+import {
+  getAssignmentType,
+  getAssignmentTypeMeta,
+} from '../../utils/dealerboardAssignment';
 
 const Container = styled.div`
   display: flex;
@@ -51,12 +55,13 @@ const ButtonGrid = styled.div`
 const ButtonSlot = styled.div`
   aspect-ratio: 1;
   border: 2px solid ${props => {
-    if (props.$assigned) return props.theme.colors.accent;
+    if (props.$assigned) return props.$typeBorder || props.theme.colors.accent;
     return props.theme.colors.border;
   }};
+  border-left-width: ${props => (props.$assigned && props.$typeBorder ? '4px' : '2px')};
   border-radius: ${props => props.theme.borderRadius.md};
   background: ${props => {
-    if (props.$assigned) return `${props.theme.colors.accent}15`;
+    if (props.$assigned) return props.$typeBg || `${props.theme.colors.accent}15`;
     return props.theme.colors.surfaceElevated;
   }};
   display: flex;
@@ -95,8 +100,10 @@ const ButtonLabel = styled.div`
 
 const ButtonType = styled.div`
   font-size: 0.65rem;
-  color: ${props => props.theme.colors.textTertiary};
+  font-weight: 700;
+  color: ${props => props.$color || props.theme.colors.textTertiary};
   margin-top: 0.25rem;
+  text-transform: uppercase;
 `;
 
 const AssignmentModal = styled.div`
@@ -375,14 +382,34 @@ const UserDealerboardConfig = ({ userId, userName, onClose }) => {
     createSpeedDialMutation.mutate(newSpeedDial);
   };
 
+  const getAssignmentDisplay = (assignment) => {
+    if (!assignment) return { label: '', meta: null };
+    const type = getAssignmentType(assignment);
+    const meta = getAssignmentTypeMeta(assignment);
+    let label = '';
+    if (type === 'privateWire') {
+      label = privateWires.find(w => w.id === assignment.lineId)?.lineLabel || 'Private Wire';
+    } else if (type === 'ddiLine') {
+      label = ddiLines.find(l => l.id === assignment.ddiLineId)?.lineName || 'DDI Line';
+    } else if (type === 'speedDial') {
+      label = assignment.metadata?.label
+        || speedDials.find(s => s.id === assignment.speedDialId)?.name
+        || 'Speed Dial';
+    }
+    return { label, meta };
+  };
+
   const renderButtonGrid = () => {
     const buttons = [];
     for (let i = 1; i <= 28; i++) {
       const assignment = getButtonAssignment(currentPage, i);
+      const { label, meta } = getAssignmentDisplay(assignment);
       buttons.push(
         <ButtonSlot
           key={i}
           $assigned={!!assignment}
+          $typeBorder={meta?.border}
+          $typeBg={meta?.bg}
           onClick={() => handleButtonClick(i)}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -394,19 +421,10 @@ const UserDealerboardConfig = ({ userId, userName, onClose }) => {
           <ButtonNumber>#{i}</ButtonNumber>
           {assignment ? (
             <>
-              <ButtonLabel>
-                {assignment.assignmentType === 'privateWire' && 
-                  privateWires.find(w => w.id === assignment.lineId)?.lineLabel}
-                {assignment.assignmentType === 'ddiLine' && 
-                  ddiLines.find(l => l.id === assignment.ddiLineId)?.lineName}
-                {assignment.assignmentType === 'speedDial' && 
-                  speedDials.find(s => s.id === assignment.speedDialId)?.name}
-              </ButtonLabel>
-              <ButtonType>
-                {assignment.assignmentType === 'privateWire' && 'Private Wire'}
-                {assignment.assignmentType === 'ddiLine' && 'DDI'}
-                {assignment.assignmentType === 'speedDial' && 'Speed Dial'}
-              </ButtonType>
+              <ButtonLabel>{label}</ButtonLabel>
+              {meta && (
+                <ButtonType $color={meta.color}>{meta.short}</ButtonType>
+              )}
             </>
           ) : (
             <ButtonLabel style={{ color: '#999', fontStyle: 'italic' }}>Empty</ButtonLabel>

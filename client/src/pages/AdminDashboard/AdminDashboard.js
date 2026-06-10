@@ -11,13 +11,15 @@ import {
   FiServer,
   FiActivity,
   FiMessageSquare,
-  FiLink
+  FiLink,
+  FiGlobe
 } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '../../stores/authStore';
 import { theme } from '../../styles/GlobalStyle';
 import MatrixManagementPanel from '../../components/MatrixManagementPanel/MatrixManagementPanel';
-import AdminUserManagement from '../../components/AdminUserManagement/AdminUserManagement';
+import UserManagement from '../../components/UserManagement/UserManagement';
 import AdminRecordings from '../../components/AdminRecordings/AdminRecordings';
 import AdminGroupManagement from '../../components/AdminGroupManagement/AdminGroupManagement';
 import AdminBroadcastManagement from '../../components/AdminBroadcastManagement/AdminBroadcastManagement';
@@ -27,12 +29,16 @@ import AdminTelephone from '../../components/AdminTelephone/AdminTelephone';
 import DealerboardGroups from '../../components/DealerboardGroups/DealerboardGroups';
 import AdminMatrixHomeservers from '../../components/AdminMatrixHomeservers/AdminMatrixHomeservers';
 import AdminMatrixRooms from '../../components/AdminMatrixRooms/AdminMatrixRooms';
+import AdminHealthCheck from '../../components/AdminHealthCheck/AdminHealthCheck';
 import api from '../../utils/api';
+import AppSwitcher from '../../components/AppSwitcher/AppSwitcher';
+import { PRODUCT_NAME } from '../../config/brand';
 
 const AdminDashboard = () => {
+  const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const [activeTab, setActiveTab] = useState('overview');
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'platform_admin' || user?.role === 'admin';
   
   // Live data states
   const [stats, setStats] = useState({
@@ -126,18 +132,29 @@ const AdminDashboard = () => {
     }
   };
 
-  if (!isAdmin) {
+  // Allow all authenticated users to access Health Check
+  // Other tabs still require admin access
+  useEffect(() => {
+    if (!isAdmin && activeTab !== 'healthCheck') {
+      setActiveTab('healthCheck');
+    }
+  }, [isAdmin, activeTab]);
+  
+  // Show access denied only if not admin and trying to access non-health-check tabs
+  if (!isAdmin && activeTab !== 'healthCheck') {
     return (
-      <Container>
-        <Header>
-          <Logo>🎙️ TradePulse Admin</Logo>
-        </Header>
-        <main style={{ padding: '2rem' }}>
-          <InfoBox>
-            Admin access required. Please sign in with an administrator account.
-          </InfoBox>
-        </main>
-      </Container>
+      <ThemeProvider theme={theme}>
+        <Container>
+          <Header>
+            <Logo>{PRODUCT_NAME} Admin</Logo>
+          </Header>
+          <main style={{ padding: '2rem' }}>
+            <InfoBox>
+              Admin access required for this section. You can access Health Check from the sidebar.
+            </InfoBox>
+          </main>
+        </Container>
+      </ThemeProvider>
     );
   }
 
@@ -145,10 +162,10 @@ const AdminDashboard = () => {
     <ThemeProvider theme={theme}>
       <Container>
         <Header>
-          <Logo>
-            <img src={`${process.env.PUBLIC_URL}/icon/tradepulse.ico`} alt="TradePulse" style={{ width: 28, height: 28, marginRight: 10 }} />
-            TradePulse Admin
-          </Logo>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+            <Logo>{PRODUCT_NAME}</Logo>
+            <AppSwitcher />
+          </div>
           <UserInfo>
             <AdminBadge>ADMIN</AdminBadge>
             <UserName>{user?.name || 'Administrator'}</UserName>
@@ -161,113 +178,146 @@ const AdminDashboard = () => {
 
         <MainContent>
           <Sidebar>
+            {/* Health Check - visible to all authenticated users - MUST BE FIRST */}
             <NavItem 
-              $active={activeTab === 'overview'}
-              onClick={() => setActiveTab('overview')}
-            >
-              <FiActivity />
-              <span>Overview</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'users'}
-              onClick={() => setActiveTab('users')}
-            >
-              <FiUsers />
-              <span>Users</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'groups'}
-              onClick={() => setActiveTab('groups')}
-            >
-              <FiPhone />
-              <span>Groups</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'broadcasts'}
-              onClick={() => setActiveTab('broadcasts')}
-            >
-              <FiRadio />
-              <span>Broadcasts</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'iptv'}
-              onClick={() => setActiveTab('iptv')}
-            >
-              <FiVideo />
-              <span>IPTV Streams</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'recordings'}
-              onClick={() => setActiveTab('recordings')}
-            >
-              <FiDatabase />
-              <span>Recordings</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'matrix'}
-              onClick={() => setActiveTab('matrix')}
-            >
-              <FiMessageSquare />
-              <span>Matrix</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'matrixRooms'}
-              onClick={() => setActiveTab('matrixRooms')}
-            >
-              <FiMessageSquare />
-              <span>Matrix Rooms</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'privateWires'}
-              onClick={() => setActiveTab('privateWires')}
-            >
-              <FiLink />
-              <span>Private Wires</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'telephone'}
-              onClick={() => setActiveTab('telephone')}
-            >
-              <FiPhone />
-              <span>Telephone</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'dealerboardGroups'}
-              onClick={() => setActiveTab('dealerboardGroups')}
-            >
-              <FiUsers />
-              <span>Dealerboard Groups</span>
-            </NavItem>
-            
-            <NavItem 
-              $active={activeTab === 'matrixHomeservers'}
-              onClick={() => setActiveTab('matrixHomeservers')}
+              key="health-check-nav"
+              $active={activeTab === 'healthCheck'}
+              onClick={() => setActiveTab('healthCheck')}
+              style={{ backgroundColor: activeTab === 'healthCheck' ? 'rgba(6, 182, 212, 0.1)' : 'transparent' }}
             >
               <FiServer />
-              <span>Matrix Homeservers</span>
+              <span>Health Check</span>
             </NavItem>
             
-            <NavItem 
-              $active={activeTab === 'system'}
-              onClick={() => setActiveTab('system')}
-            >
-              <FiServer />
-              <span>System</span>
-            </NavItem>
+            {/* Admin-only tabs */}
+            {isAdmin && (
+              <>
+                <NavItem 
+                  $active={activeTab === 'overview'}
+                  onClick={() => setActiveTab('overview')}
+                >
+                  <FiActivity />
+                  <span>Overview</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'users'}
+                  onClick={() => setActiveTab('users')}
+                >
+                  <FiUsers />
+                  <span>Users</span>
+                </NavItem>
+            
+                <NavItem 
+                  $active={activeTab === 'groups'}
+                  onClick={() => setActiveTab('groups')}
+                >
+                  <FiPhone />
+                  <span>Groups</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'broadcasts'}
+                  onClick={() => setActiveTab('broadcasts')}
+                >
+                  <FiRadio />
+                  <span>Broadcasts</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'iptv'}
+                  onClick={() => setActiveTab('iptv')}
+                >
+                  <FiVideo />
+                  <span>IPTV Streams</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'recordings'}
+                  onClick={() => setActiveTab('recordings')}
+                >
+                  <FiDatabase />
+                  <span>Recordings</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'matrix'}
+                  onClick={() => setActiveTab('matrix')}
+                >
+                  <FiMessageSquare />
+                  <span>Matrix</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'matrixRooms'}
+                  onClick={() => setActiveTab('matrixRooms')}
+                >
+                  <FiMessageSquare />
+                  <span>Matrix Rooms</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'privateWires'}
+                  onClick={() => setActiveTab('privateWires')}
+                >
+                  <FiLink />
+                  <span>Private Wires</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'telephone'}
+                  onClick={() => setActiveTab('telephone')}
+                >
+                  <FiPhone />
+                  <span>Telephone</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'dealerboardGroups'}
+                  onClick={() => setActiveTab('dealerboardGroups')}
+                >
+                  <FiUsers />
+                  <span>Dealerboard Groups</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'matrixHomeservers'}
+                  onClick={() => setActiveTab('matrixHomeservers')}
+                >
+                  <FiServer />
+                  <span>Matrix Homeservers</span>
+                </NavItem>
+                
+                <NavItem 
+                  $active={activeTab === 'system'}
+                  onClick={() => setActiveTab('system')}
+                >
+                  <FiServer />
+                  <span>System</span>
+                </NavItem>
+
+                <NavItem 
+                  $active={false}
+                  onClick={() => navigate('/federation')}
+                >
+                  <FiGlobe />
+                  <span>Federation Portal</span>
+                </NavItem>
+
+              </>
+            )}
           </Sidebar>
 
           <Content>
-            {activeTab === 'overview' && (
+            {/* Health Check - available to all authenticated users */}
+            {activeTab === 'healthCheck' && (
+              <TabContent>
+                <AdminHealthCheck />
+              </TabContent>
+            )}
+
+            {/* Admin-only tabs */}
+            {isAdmin && activeTab === 'overview' && (
               <OverviewTab>
                 <PageTitle>System Overview</PageTitle>
                 
@@ -374,25 +424,25 @@ const AdminDashboard = () => {
               </OverviewTab>
             )}
 
-            {activeTab === 'users' && (
+            {isAdmin && activeTab === 'users' && (
               <TabContent>
-                <AdminUserManagement />
+                <UserManagement />
               </TabContent>
             )}
 
-            {activeTab === 'groups' && (
+            {isAdmin && activeTab === 'groups' && (
               <TabContent>
                 <AdminGroupManagement />
               </TabContent>
             )}
 
-            {activeTab === 'broadcasts' && (
+            {isAdmin && activeTab === 'broadcasts' && (
               <TabContent>
                 <AdminBroadcastManagement />
               </TabContent>
             )}
 
-            {activeTab === 'iptv' && (
+            {isAdmin && activeTab === 'iptv' && (
               <TabContent>
                 <PageTitle>IPTV Stream Management</PageTitle>
                 <InfoBox>
@@ -403,53 +453,54 @@ const AdminDashboard = () => {
               </TabContent>
             )}
 
-            {activeTab === 'recordings' && (
+            {isAdmin && activeTab === 'recordings' && (
               <TabContent>
                 <AdminRecordings />
               </TabContent>
             )}
 
-            {activeTab === 'matrix' && (
+            {isAdmin && activeTab === 'matrix' && (
               <TabContent>
                 <MatrixManagementPanel />
               </TabContent>
             )}
 
-            {activeTab === 'privateWires' && (
+            {isAdmin && activeTab === 'privateWires' && (
               <TabContent>
                 <AdminPrivateWires />
               </TabContent>
             )}
 
-            {activeTab === 'telephone' && (
+            {isAdmin && activeTab === 'telephone' && (
               <TabContent>
                 <AdminTelephone />
               </TabContent>
             )}
 
-            {activeTab === 'dealerboardGroups' && (
+            {isAdmin && activeTab === 'dealerboardGroups' && (
               <TabContent>
                 <DealerboardGroups />
               </TabContent>
             )}
 
-            {activeTab === 'matrixHomeservers' && (
+            {isAdmin && activeTab === 'matrixHomeservers' && (
               <TabContent>
                 <AdminMatrixHomeservers />
               </TabContent>
             )}
 
-            {activeTab === 'matrixRooms' && (
+            {isAdmin && activeTab === 'matrixRooms' && (
               <TabContent>
                 <AdminMatrixRooms />
               </TabContent>
             )}
 
-            {activeTab === 'system' && (
+            {isAdmin && activeTab === 'system' && (
               <TabContent>
                 <AdminSystemSettings />
               </TabContent>
             )}
+
           </Content>
         </MainContent>
       </Container>
@@ -541,6 +592,8 @@ const Sidebar = styled.aside`
   background: ${props => props.theme.colors.surface};
   border-right: 1px solid ${props => props.theme.colors.border};
   padding: 1.5rem 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 `;
 
 const NavItem = styled.div`

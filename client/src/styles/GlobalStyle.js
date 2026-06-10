@@ -6,8 +6,8 @@ export const theme = {
     primary: '#0a0a0f', // Deep dark blue-black
     secondary: '#151520', // Slightly lighter dark
     tertiary: '#1a1a2e', // Card/surface dark
-    accent: '#06b6d4', // Cyan blue (from TradePulse gradient)
-    accentSecondary: '#10b981', // Emerald green (from TradePulse gradient)
+    accent: '#06b6d4', // Cyan blue (brand gradient)
+    accentSecondary: '#10b981', // Emerald green (brand gradient)
     accentHover: '#0891b2', // Darker cyan for hover
     success: '#10b981', // Emerald green
     warning: '#f59e0b', // Amber
@@ -24,8 +24,18 @@ export const theme = {
     borderLight: '#3a3a4a', // Lighter borders
     shadow: 'rgba(0, 0, 0, 0.3)', // Shadows
     shadowGlow: 'rgba(6, 182, 212, 0.2)', // Accent glow
-    gradient: 'linear-gradient(135deg, #06b6d4 0%, #10b981 100%)', // TradePulse gradient
+    gradient: 'linear-gradient(135deg, #06b6d4 0%, #10b981 100%)', // TradeCom brand gradient
     gradientSubtle: 'linear-gradient(180deg, rgba(6, 182, 212, 0.1) 0%, rgba(16, 185, 129, 0.1) 100%)', // Subtle gradient
+    // Dealerboard line states (IPC / Speakerbus / Cloud9 conventions)
+    line: {
+      idle: { bg: '#151520', border: '#2a2a3a', text: '#ffffff' },
+      private: { bg: '#166534', border: '#22c55e', text: '#ffffff' },
+      ringing: { bg: '#dc2626', border: '#ef4444', text: '#ffffff', glow: 'rgba(239, 68, 68, 0.8)' },
+      busy: { bg: '#7f1d1d', border: '#ef4444', text: '#ffffff' },
+      disconnected: { bg: '#374151', border: '#6b7280', text: '#d1d5db' },
+      monitor: { bg: '#1e3a5f', border: '#f59e0b', text: '#ffffff' },
+      speaker: { bg: '#1e3a8a', border: '#3b82f6', text: '#ffffff' },
+    },
   },
   fonts: {
     primary: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif",
@@ -229,10 +239,10 @@ export const Button = styled.button.withConfig({
   align-items: center;
   justify-content: center;
   gap: 0.2rem;
-  padding: 0.18rem 0.35rem;
-  border-radius: 6px;
+  padding: ${props => props.theme.spacing.sm} ${props => props.theme.spacing.md};
+  border-radius: ${props => props.theme.borderRadius.md};
   font-weight: 500;
-  font-size: 0.65rem;
+  font-size: 0.875rem;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   border: 1px solid transparent;
@@ -349,6 +359,8 @@ export const Input = styled.input`
   border: 1px solid ${props => props.theme.colors.border};
   border-radius: ${props => props.theme.borderRadius.md};
   font-size: 0.875rem;
+  background: ${props => props.theme.colors.surface};
+  color: ${props => props.theme.colors.text};
   transition: border-color 0.2s ease;
 
   &:focus {
@@ -359,6 +371,23 @@ export const Input = styled.input`
   &::placeholder {
     color: ${props => props.theme.colors.textSecondary};
   }
+
+  &:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+    background: ${props => props.theme.colors.tertiary};
+    color: ${props => props.theme.colors.textSecondary};
+  }
+
+  /* Prevent Chrome autofill from forcing light backgrounds */
+  &:-webkit-autofill,
+  &:-webkit-autofill:hover,
+  &:-webkit-autofill:focus,
+  &:-webkit-autofill:active {
+    -webkit-text-fill-color: ${props => props.theme.colors.text};
+    transition: background-color 9999s ease-in-out 0s;
+    box-shadow: 0 0 0px 1000px ${props => props.theme.colors.surface} inset;
+  }
 `;
 
 export const TextArea = styled.textarea`
@@ -368,6 +397,8 @@ export const TextArea = styled.textarea`
   border-radius: ${props => props.theme.borderRadius.md};
   font-size: 0.875rem;
   font-family: inherit;
+  background: ${props => props.theme.colors.surface};
+  color: ${props => props.theme.colors.text};
   resize: vertical;
   min-height: 100px;
   transition: border-color 0.2s ease;
@@ -380,6 +411,13 @@ export const TextArea = styled.textarea`
   &::placeholder {
     color: ${props => props.theme.colors.textSecondary};
   }
+
+  &:disabled {
+    opacity: 0.75;
+    cursor: not-allowed;
+    background: ${props => props.theme.colors.tertiary};
+    color: ${props => props.theme.colors.textSecondary};
+  }
 `;
 
 export const Select = styled.select`
@@ -389,8 +427,14 @@ export const Select = styled.select`
   border-radius: ${props => props.theme.borderRadius.md};
   font-size: 0.875rem;
   background: ${props => props.theme.colors.surface};
+  color: ${props => props.theme.colors.text};
   cursor: pointer;
   transition: border-color 0.2s ease;
+
+  option {
+    background: ${props => props.theme.colors.surface};
+    color: ${props => props.theme.colors.text};
+  }
 
   &:focus {
     border-color: ${props => props.theme.colors.accent};

@@ -1,5 +1,5 @@
-# Matrix Federation Configuration for TradePulse
-# This configuration enables federation between multiple TradePulse servers
+# Matrix Federation Configuration for TradeCom
+# This configuration enables federation between multiple TradeCom servers
 
 # Server Configuration
 server_name: "trading-intercom.local"

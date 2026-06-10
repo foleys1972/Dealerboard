@@ -24,8 +24,8 @@ class SubscriberAudioRoutingService {
       // Check if server is configured as subscriber
       const serverRole = await getServerRole();
       
-      if (serverRole.role !== 'subscriber') {
-        logger.info('Server is not a subscriber, skipping subscriber audio routing initialization');
+      if (!serverRole.enableSubscriber) {
+        logger.info('Subscriber capability disabled, skipping subscriber audio routing initialization');
         return;
       }
 

@@ -1,0 +1,11 @@
+class PlatformAdminError extends Error {
+  constructor(status, message, details = undefined, extra = undefined) {
+    super(message);
+    this.name = 'PlatformAdminError';
+    this.status = status;
+    this.details = details;
+    this.extra = extra;
+  }
+}
+
+module.exports = { PlatformAdminError };

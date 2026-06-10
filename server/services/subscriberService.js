@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const { pool } = require('./databaseService');
 const logger = require('../utils/logger');
 const { getServerRole } = require('../utils/serverRole');
+const crypto = require('crypto');
 
 class SubscriberService {
   constructor() {
@@ -10,8 +11,8 @@ class SubscriberService {
     this.reconnectTimer = null;
     this.heartbeatTimer = null;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 10;
-    this.reconnectInterval = 5000; // 5 seconds
+    this.reconnectInterval = 5000; // base delay
+    this.maxReconnectDelay = parseInt(process.env.SUBSCRIBER_MAX_RECONNECT_DELAY_MS) || 60000;
     this.heartbeatInterval = 30000; // 30 seconds
     this.publisherUrl = null;
     this.authToken = null;
@@ -22,24 +23,42 @@ class SubscriberService {
     this.audioRoutingService = null; // Will be set by subscriber audio routing service
   }
 
+  _computeLocalServerUrl() {
+    const { computeLocalServerUrl } = require('./subscribers/localSubscriberRegistry');
+    return computeLocalServerUrl();
+  }
+
+  async ensureLocalSubscriberRecord() {
+    const { ensureLocalSubscriberRecord } = require('./subscribers/localSubscriberRegistry');
+    try {
+      await ensureLocalSubscriberRecord();
+    } catch (error) {
+      logger.warn('Failed to auto-register local subscriber record:', error?.message || error);
+    }
+  }
+
   async initialize() {
     try {
       // Check if server is configured as subscriber
       const serverRole = await getServerRole();
       
-      if (serverRole.role !== 'subscriber') {
-        logger.info('Server is not configured as subscriber, skipping subscriber service initialization');
+      if (!serverRole.enableSubscriber) {
+        logger.info('Subscriber capability disabled, skipping subscriber service initialization');
         return;
       }
 
       if (!serverRole.publisherUrl) {
-        logger.warn('Subscriber mode enabled but publisher URL not configured');
+        logger.warn('Subscriber enabled but publisher URL not configured');
         return;
       }
 
       this.publisherUrl = serverRole.publisherUrl;
       this.serverId = serverRole.serverId;
       this.serverName = serverRole.serverName;
+
+      // Ensure this node exists in the subscribers list and has an auth token.
+      // This is required for hybrid nodes where we want the publisher to also act as a subscriber.
+      await this.ensureLocalSubscriberRecord();
 
       // Get auth token from subscribers table
       await this.loadAuthToken();
@@ -129,12 +148,21 @@ class SubscriberService {
       logger.info(`Connecting to publisher WebSocket: ${wsUrl}`);
 
       // Create WebSocket connection
-      const ws = new WebSocket(wsUrl, {
+      const isLoopback = /wss:\/\/(127\.0\.0\.1|localhost)(:|\/)/i.test(wsUrl);
+      const wsOptions = {
         headers: {
           'X-Subscriber-Server-Id': this.serverId,
           'X-Subscriber-Auth-Token': this.authToken
         }
-      });
+      };
+
+      // In hybrid mode, the subscriber connects to the local publisher using a dev/self-signed cert.
+      // Avoid reconnect storms by disabling TLS verification only for loopback.
+      if (isLoopback) {
+        wsOptions.rejectUnauthorized = false;
+      }
+
+      const ws = new WebSocket(wsUrl, wsOptions);
 
       ws.on('open', () => {
         logger.info('Connected to publisher server');
@@ -234,6 +262,29 @@ class SubscriberService {
         case 'auth-response':
           if (message.success) {
             logger.info('Successfully authenticated with publisher');
+
+            try {
+              if (message.assignedPort) {
+                const currentPort = parseInt(process.env.PORT || '5000', 10) || 5000;
+                const assignedPort = parseInt(message.assignedPort, 10);
+                if (Number.isFinite(assignedPort) && assignedPort > 0) {
+                  // Keep the DB record in sync for admin visibility.
+                  // Note: changing the actual listen port requires restart / config update.
+                  pool.query(
+                    `UPDATE subscribers SET connection_port = $1, updated_at = NOW() WHERE server_id = $2`,
+                    [assignedPort, this.serverId]
+                  ).catch(() => {});
+
+                  if (assignedPort !== currentPort) {
+                    logger.warn(
+                      `Publisher assigned port ${assignedPort} but this subscriber is currently running on PORT=${currentPort}. ` +
+                      `Update server.env PORT and restart this subscriber to match the assigned port.`
+                    );
+                  }
+                }
+              }
+            } catch {}
+
             this.updateConnectionStatus('connected');
           } else {
             logger.error(`Authentication failed: ${message.error}`);
@@ -345,15 +396,18 @@ class SubscriberService {
       return; // Already scheduled
     }
 
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      logger.error('Max reconnection attempts reached. Stopping reconnection attempts.');
-      return;
-    }
-
+    // Never give up: a subscriber that stops retrying strands its whole site.
+    // Exponential backoff capped at maxReconnectDelay, with +/-25% jitter so
+    // a publisher restart doesn't get a synchronized thundering herd.
     this.reconnectAttempts++;
-    const delay = this.reconnectInterval * Math.min(this.reconnectAttempts, 5); // Exponential backoff, max 5x
+    const exponential = Math.min(
+      this.reconnectInterval * Math.pow(2, Math.min(this.reconnectAttempts - 1, 10)),
+      this.maxReconnectDelay
+    );
+    const jitter = exponential * 0.25 * (Math.random() * 2 - 1);
+    const delay = Math.max(1000, Math.round(exponential + jitter));
 
-    logger.info(`Scheduling reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${delay}ms`);
+    logger.info(`Scheduling reconnection attempt ${this.reconnectAttempts} in ${delay}ms`);
 
     this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;

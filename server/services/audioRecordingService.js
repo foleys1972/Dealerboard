@@ -6,7 +6,8 @@ const {
   getRecording: getRecordingFromDB, 
   updateRecording, 
   findRecordings,
-  getCallSession 
+  getCallSession,
+  getGroupById
 } = require('./databaseService');
 
 class AudioRecordingService {
@@ -23,6 +24,96 @@ class AudioRecordingService {
     this.useDatabase = process.env.RECORDING_USE_DATABASE !== 'false'; // Default to true
     
     this.initializeRecordingDirectory();
+  }
+
+  _deriveConnectedAt(callSession, fallbackStartTime) {
+    try {
+      const meta = callSession?.sessionMetadata || {};
+      const connectedAtRaw = meta.connectedAt || meta.answeredAt || meta.answerTimestamp;
+      if (connectedAtRaw) {
+        const d = new Date(connectedAtRaw);
+        if (!isNaN(d.getTime())) return d;
+      }
+
+      // Prefer first-answerer participant joinTime if present.
+      const firstAnswererId = callSession?.firstAnswererUserId;
+      const parts = Array.isArray(callSession?.participants) ? callSession.participants : [];
+      if (firstAnswererId && parts.length > 0) {
+        const p = parts.find(x => String(x?.userId || '').toLowerCase() === String(firstAnswererId).toLowerCase());
+        const jt = p?.joinTime;
+        if (jt) {
+          const d = new Date(jt);
+          if (!isNaN(d.getTime())) return d;
+        }
+      }
+    } catch {}
+
+    // Fallback to session start_time or recording startTime.
+    try {
+      if (callSession?.startTime) {
+        const d = new Date(callSession.startTime);
+        if (!isNaN(d.getTime())) return d;
+      }
+    } catch {}
+
+    return fallbackStartTime;
+  }
+
+  _buildDbParticipants(callSession, startTime, endTime) {
+    try {
+      const out = [];
+      const initiatorId = callSession?.initiatorUserId;
+      const answererId = callSession?.firstAnswererUserId;
+      const parts = Array.isArray(callSession?.participants) ? callSession.participants : [];
+
+      const joinTimeFor = (userId) => {
+        if (!userId) return startTime.toISOString();
+        const p = parts.find(x => String(x?.userId || '').toLowerCase() === String(userId).toLowerCase());
+        return (p?.joinTime || startTime.toISOString());
+      };
+
+      if (initiatorId) {
+        out.push({
+          userId: initiatorId,
+          role: 'initiator',
+          joinTime: joinTimeFor(initiatorId),
+          leaveTime: endTime ? endTime.toISOString() : null,
+        });
+      }
+
+      if (answererId && String(answererId).toLowerCase() !== String(initiatorId || '').toLowerCase()) {
+        out.push({
+          userId: answererId,
+          role: 'answerer',
+          joinTime: joinTimeFor(answererId),
+          leaveTime: endTime ? endTime.toISOString() : null,
+        });
+      }
+
+      // Add remaining participants (excluding initiator/answerer already added)
+      for (const p of parts) {
+        const uid = p?.userId;
+        if (!uid) continue;
+        const lower = String(uid).toLowerCase();
+        if (initiatorId && lower === String(initiatorId).toLowerCase()) continue;
+        if (answererId && lower === String(answererId).toLowerCase()) continue;
+        out.push({
+          userId: uid,
+          role: p?.role || 'participant',
+          joinTime: p?.joinTime || startTime.toISOString(),
+          leaveTime: endTime ? endTime.toISOString() : null,
+        });
+      }
+
+      return out;
+    } catch {
+      return (Array.isArray(callSession?.participants) ? callSession.participants : []).map(p => ({
+        userId: p?.userId || p,
+        role: 'participant',
+        joinTime: startTime.toISOString(),
+        leaveTime: endTime ? endTime.toISOString() : null,
+      }));
+    }
   }
 
   async initializeRecordingDirectory() {
@@ -153,6 +244,19 @@ class AudioRecordingService {
       try {
         // Get call session to extract metadata
         const callSession = await getCallSession(sessionId);
+
+        let resolvedLineName = null;
+        try {
+          if (groupId) {
+            const grp = await getGroupById(groupId);
+            const name = grp?.name || null;
+            if (name && String(name).trim().length > 0) {
+              resolvedLineName = String(name).trim();
+            }
+          }
+        } catch {}
+
+        const dbParticipants = this._buildDbParticipants(callSession, startTime, null);
         
         await createRecording({
           recordingId,
@@ -165,11 +269,7 @@ class AudioRecordingService {
           startTime,
           fileUrl: recordingPath, // Will be updated when file is saved
           audioFormat: `audio/${this.recordingFormat}`,
-          participants: participants.map(p => ({
-            userId: p,
-            role: 'participant',
-            joinTime: startTime.toISOString()
-          })),
+          participants: dbParticipants,
           invitedNoAnswer: callSession?.invitedNoAnswer || [],
           topology: topology || callSession?.topologyType || null,
           roomIds: roomIds.length > 0 ? roomIds : (callSession?.rooms || []),
@@ -183,7 +283,11 @@ class AudioRecordingService {
             quality: this.recordingQuality,
             encryptionEnabled: this.encryptionEnabled,
             retentionDays: this.retentionDays,
-            groupId
+            groupId,
+            // For broadcast/group recordings, this is the label shown in UI.
+            // (UI reads metadata.lineName/groupName; if missing it falls back to raw ids.)
+            lineName: resolvedLineName,
+            groupName: resolvedLineName
           }
         });
         logger.info(`Recording ${recordingId} saved to database`);
@@ -204,7 +308,15 @@ class AudioRecordingService {
     }
 
     const endTime = new Date();
-    const duration = Math.floor((endTime - recording.startTime) / 1000); // Convert to seconds
+    let callSession = null;
+    try {
+      if (this.useDatabase && recording.sessionId) {
+        callSession = await getCallSession(recording.sessionId);
+      }
+    } catch {}
+
+    const connectedAt = this._deriveConnectedAt(callSession, recording.startTime);
+    const duration = Math.max(0, Math.floor((endTime - connectedAt) / 1000)); // seconds
     
     recording.endTime = endTime;
     recording.duration = duration * 1000; // Keep in ms for backward compatibility
@@ -230,18 +342,15 @@ class AudioRecordingService {
         const retentionUntil = new Date();
         retentionUntil.setFullYear(retentionUntil.getFullYear() + retentionYears);
 
+        const dbParticipants = this._buildDbParticipants(callSession, connectedAt, endTime);
+
         await updateRecording(recordingId, {
           endTime,
           duration,
           fileUrl: recording.filePath,
           fileSize,
           audioFormat: `audio/${this.recordingFormat}`,
-          participants: recording.participants.map(p => ({
-            userId: p,
-            role: 'participant',
-            joinTime: recording.startTime.toISOString(),
-            leaveTime: endTime.toISOString()
-          })),
+          participants: dbParticipants,
           retentionUntil
         });
         logger.info(`Recording ${recordingId} updated in database`);
@@ -340,7 +449,7 @@ class AudioRecordingService {
           return {
             id: dbRecording.recordingId,
             groupId: dbRecording.recordingMetadata?.groupId || null,
-            participants: dbRecording.participants.map(p => p.userId || p),
+            participants: Array.isArray(dbRecording.participants) ? dbRecording.participants : [],
             startTime: dbRecording.startTime,
             endTime: dbRecording.endTime,
             duration: dbRecording.duration ? dbRecording.duration * 1000 : 0, // Convert to ms
@@ -387,7 +496,7 @@ class AudioRecordingService {
           .map(r => ({
             id: r.recordingId,
             groupId: r.recordingMetadata?.groupId || null,
-            participants: r.participants.map(p => p.userId || p),
+            participants: Array.isArray(r.participants) ? r.participants : [],
             startTime: r.startTime,
             endTime: r.endTime,
             duration: r.duration ? r.duration * 1000 : 0,

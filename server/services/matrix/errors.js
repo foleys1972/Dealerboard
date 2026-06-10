@@ -1,0 +1,11 @@
+class MatrixRouteError extends Error {
+  constructor(status, message, details = undefined, extra = undefined) {
+    super(message);
+    this.name = 'MatrixRouteError';
+    this.status = status;
+    this.details = details;
+    this.extra = extra;
+  }
+}
+
+module.exports = { MatrixRouteError };

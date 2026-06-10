@@ -7,64 +7,44 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
-require('dotenv').config();
+const dotenv = require('dotenv');
+dotenv.config({ path: path.join(__dirname, '..', '.env'), override: false });
+dotenv.config({ path: path.join(__dirname, '..', 'server.env'), override: false });
 
-const { initializeMatrixClient } = require('./services/matrixService');
-const { initializeMatrixAppService } = require('./services/matrixAppService');
-const { initializeMatrixUserSync } = require('./services/matrixUserSync');
-const { initializeMediaSoup } = require('./services/mediaSoupService');
-const { initializeAudioRouting } = require('./services/audioRoutingService');
-const { initializeSIPGateway } = require('./services/sipService');
-const { initializeDatabase } = require('./services/databaseService');
-const { initializeRedis } = require('./services/redisService');
-const { SessionManager } = require('./services/sessionManager');
-const { groupService } = require('./services/groupService');
-const { setupRoutes } = require('./routes');
-const recordingRoutes = require('./routes');
-const { setupSocketHandlers } = require('./socketHandlers');
-const { setupAudioRecording } = require('./services/audioRecordingService');
-const { initializeSubscriberService, getSubscriberService } = require('./services/subscriberService');
-const SubscriberAudioRoutingService = require('./services/subscriberAudioRoutingService');
-const PublisherSubscriberService = require('./services/publisherSubscriberService');
-const { initializeRetentionPolicyService } = require('./services/retentionPolicyService');
-const { initializeServerRole, isPublisher } = require('./utils/serverRole');
-const { getOrchestratorService } = require('./services/orchestratorService');
-const { getMatrixFederationService } = require('./services/matrixFederationService');
+const { validateServerConfig } = require('./utils/configValidation');
 const logger = require('./utils/logger');
+validateServerConfig();
+
+const { initCoreServices } = require('./bootstrap/initCoreServices');
+const { initMatrixServices } = require('./bootstrap/initMatrixServices');
+const { initIntegrationServices } = require('./bootstrap/initIntegrationServices');
+const { initHaAndSubscribers } = require('./bootstrap/initHaAndSubscribers');
+const { wireSocketAndSip, initBackgroundJobs } = require('./bootstrap/wireSocketAndBackground');
+const { setupRoutes } = require('./routes');
 
 class TradingIntercomServer {
   constructor() {
     this.app = express();
+    this.app.locals.tradingIntercomServer = this;
+
+    // API responses should not be cached. ETags can cause 304 Not Modified for JSON endpoints,
+    // which makes the UI look like data "disappeared" when the browser is reusing a stale body.
+    this.app.set('etag', false);
+
+    // Enterprise deployments frequently run behind a reverse proxy / load balancer.
+    // When TRUST_PROXY is enabled, Express will honor X-Forwarded-* headers.
+    if (process.env.TRUST_PROXY === 'true') {
+      this.app.set('trust proxy', 1);
+    }
     this.server = this.createHttpServer();
-    
+
+    const isOriginAllowed = this.createOriginChecker();
+
     // Initialize Socket.IO with connection limits and throttling
     this.io = require('socket.io')(this.server, {
       cors: {
         origin: (origin, callback) => {
-          // Allow requests with no origin (mobile apps, curl, etc)
-          if (!origin) return callback(null, true);
-          
-          // Allow localhost and 127.0.0.1
-          if (origin.startsWith('http://localhost:') || 
-              origin.startsWith('https://localhost:') ||
-              origin.startsWith('http://127.0.0.1:') ||
-              origin.startsWith('https://127.0.0.1:')) {
-            return callback(null, true);
-          }
-          
-          // Allow local network IPs (192.168.x.x, 10.x.x.x, 172.x.x.x) for development
-          const localNetworkRegex = /^https?:\/\/(192\.168\.|10\.|172\.\d{1,3}\.)/;
-          if (localNetworkRegex.test(origin)) {
-            return callback(null, true);
-          }
-          
-          // Allow CLIENT_URL from env
-          const clientUrl = process.env.CLIENT_URL;
-          if (clientUrl && origin.startsWith(clientUrl)) {
-            return callback(null, true);
-          }
-          
-          // Default: deny
+          if (isOriginAllowed(origin)) return callback(null, true);
           callback(new Error(`Socket.IO CORS blocked for origin: ${origin}`));
         },
         methods: ["GET", "POST"],
@@ -85,8 +65,11 @@ class TradingIntercomServer {
       },
       // Handle connection errors gracefully
       connectTimeout: 45000, // 45 seconds
-      // Increase max buffer for polling if needed
-      httpCompression: true
+      // Verified 2026-06-10: compression works with current web and .NET clients
+      // (see SOCKET_IO_ROOT_CAUSE.md). SOCKETIO_COMPRESSION=false is the emergency
+      // kill switch for the historical "Invalid frame header" issue.
+      httpCompression: process.env.SOCKETIO_COMPRESSION !== 'false',
+      perMessageDeflate: process.env.SOCKETIO_COMPRESSION !== 'false',
     });
     
     // Add error handler for Socket.IO engine
@@ -110,6 +93,88 @@ class TradingIntercomServer {
     this.connectionCount = 0;
     this.maxConnections = process.env.MAX_WEBSOCKET_CONNECTIONS || 1000;
     this.publisherSubscriberService = null;
+    this._shutdownHandlersRegistered = false;
+    this._shutdownInProgress = false;
+  }
+
+  computeLocalServerUrl() {
+    const port = String(process.env.PORT || 5000);
+    const announcedIp = process.env.ANNOUNCED_IP || process.env.LISTEN_IP || '127.0.0.1';
+    const protocol = process.env.HTTPS_ENABLED === 'true' ? 'https' : 'http';
+    return `${protocol}://${announcedIp}:${port}`;
+  }
+
+  getCorsConfig() {
+    const envAllowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const allowedOrigins = new Set([
+      ...envAllowedOrigins,
+      ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL] : [])
+    ]);
+
+    const hasExplicitAllowlist = allowedOrigins.size > 0;
+
+    // Development convenience: always allow local origins (including the server's own origin)
+    // even if an explicit allowlist is configured via CLIENT_URL.
+    if (process.env.NODE_ENV !== 'production') {
+      const port = String(process.env.PORT || 5000);
+      const announcedIp = process.env.ANNOUNCED_IP || process.env.LISTEN_IP || '127.0.0.1';
+
+      // Common dev UI origins
+      allowedOrigins.add('http://127.0.0.1:3000');
+      allowedOrigins.add('http://localhost:3000');
+      allowedOrigins.add('https://127.0.0.1:3000');
+      allowedOrigins.add('https://localhost:3000');
+
+      // If the admin portal is served from the server itself
+      allowedOrigins.add(`http://${announcedIp}:${port}`);
+      allowedOrigins.add(`https://${announcedIp}:${port}`);
+      allowedOrigins.add(`http://127.0.0.1:${port}`);
+      allowedOrigins.add(`https://127.0.0.1:${port}`);
+      allowedOrigins.add(`http://localhost:${port}`);
+      allowedOrigins.add(`https://localhost:${port}`);
+    }
+
+    if (!hasExplicitAllowlist) {
+      allowedOrigins.add(process.env.CLIENT_URL || 'http://localhost:3000');
+      allowedOrigins.add('http://127.0.0.1:3000');
+      allowedOrigins.add('http://localhost:3000');
+      allowedOrigins.add('https://127.0.0.1:3000');
+      allowedOrigins.add('https://localhost:3000');
+      allowedOrigins.add('https://192.168.1.41:3000');
+      allowedOrigins.add('http://192.168.1.41:3000');
+    }
+
+    return { allowedOrigins, hasExplicitAllowlist };
+  }
+
+  // Single origin-allow policy shared by the Socket.IO and Express CORS configs.
+  createOriginChecker() {
+    const { allowedOrigins, hasExplicitAllowlist } = this.getCorsConfig();
+
+    const isLocalOrigin = (origin) =>
+      origin.startsWith('http://localhost:') ||
+      origin.startsWith('https://localhost:') ||
+      origin.startsWith('http://127.0.0.1:') ||
+      origin.startsWith('https://127.0.0.1:') ||
+      /^https?:\/\/(192\.168\.|10\.|172\.\d{1,3}\.)/.test(origin);
+
+    return (origin) => {
+      // Allow non-browser or same-origin requests (no Origin header)
+      if (!origin) return true;
+      if (allowedOrigins.has(origin)) return true;
+
+      // Development convenience (and the default when no explicit allowlist is
+      // configured): allow localhost/loopback and RFC1918 LAN origins.
+      if (process.env.NODE_ENV !== 'production' || !hasExplicitAllowlist) {
+        return isLocalOrigin(origin);
+      }
+
+      return false;
+    };
   }
 
   createHttpServer() {
@@ -119,6 +184,12 @@ class TradingIntercomServer {
     const keyPath =
       process.env.SSL_KEY_FILE ||
       path.join(__dirname, '..', 'dev-key.pem');
+
+    // HTTPS should be opt-in. If dev certs exist, starting HTTPS unconditionally can cause
+    // browsers/clients (configured for http://) to see ERR_INVALID_HTTP_RESPONSE.
+    if (process.env.HTTPS_ENABLED !== 'true') {
+      return http.createServer(this.app);
+    }
 
     try {
       const tlsOptions = {
@@ -141,215 +212,17 @@ class TradingIntercomServer {
       
       // Initialize core services
       await this.setupMiddleware();
-      
-      try {
-        await initializeDatabase();
-      } catch (error) {
-        logger.warn('Database initialization failed:', error.message);
-      }
-      
-      // Initialize group service
-      try {
-        await groupService.initialize();
-      } catch (error) {
-        logger.warn('Group service initialization failed:', error.message);
-      }
-      
-      try {
-        this.redisClient = await initializeRedis();
-      } catch (error) {
-        logger.warn('Redis initialization failed:', error.message);
-        this.redisClient = null;
-      }
-      
-      try {
-        this.sessionManager = new SessionManager(this.redisClient);
-        await this.sessionManager.initialize();
-      } catch (error) {
-        logger.warn('Session manager initialization failed:', error.message);
-        this.sessionManager = null;
-      }
-      
-      try {
-        this.mediaSoupWorker = await initializeMediaSoup();
-      } catch (error) {
-        logger.warn('MediaSoup initialization failed:', error.message);
-        this.mediaSoupWorker = null;
-      }
-      
-      try {
-        await initializeAudioRouting();
-      } catch (error) {
-        logger.warn('Audio routing initialization failed:', error.message);
-      }
-      
-      try {
-        this.matrixClient = await initializeMatrixClient();
-      } catch (error) {
-        logger.warn('Matrix client initialization failed:', error.message);
-        this.matrixClient = null;
-      }
-      
-      try {
-        this.matrixAppService = await initializeMatrixAppService();
-      } catch (error) {
-        logger.warn('Matrix AppService initialization failed:', error.message);
-        this.matrixAppService = null;
-      }
-      
-      try {
-        await initializeMatrixUserSync();
-      } catch (error) {
-        logger.warn('Matrix user sync initialization failed:', error.message);
-      }
-      
-      try {
-        this.sipGateway = await initializeSIPGateway();
-      } catch (error) {
-        logger.warn('SIP gateway initialization failed:', error.message);
-        this.sipGateway = null;
-      }
 
-      // Initialize Zoom service
-      try {
-        const { initializeZoomService } = require('./services/zoomService');
-        const zoomService = initializeZoomService();
-        await zoomService.initialize();
-        this.app.locals.zoomService = zoomService;
-        logger.info('Zoom service initialized');
-      } catch (error) {
-        logger.warn('Zoom service initialization failed:', error.message);
-      }
+      await initCoreServices(this);
+      await initMatrixServices(this);
+      await initIntegrationServices(this);
 
-      // Initialize Zoom-Matrix bridge service
-      try {
-        const { initializeZoomMatrixBridge } = require('./services/zoomMatrixBridge');
-        const zoomMatrixBridge = initializeZoomMatrixBridge();
-        this.app.locals.zoomMatrixBridge = zoomMatrixBridge;
-        logger.info('Zoom-Matrix bridge service initialized');
-      } catch (error) {
-        logger.warn('Zoom-Matrix bridge service initialization failed:', error.message);
-      }
-
-      // Initialize Teams service
-      try {
-        const { initializeTeamsService } = require('./services/teamsService');
-        const teamsService = initializeTeamsService();
-        await teamsService.initialize();
-        this.app.locals.teamsService = teamsService;
-        logger.info('Teams service initialized');
-      } catch (error) {
-        logger.warn('Teams service initialization failed:', error.message);
-      }
-
-      // Initialize Teams-Matrix bridge service
-      try {
-        const { initializeTeamsMatrixBridge } = require('./services/teamsMatrixBridge');
-        const teamsMatrixBridge = initializeTeamsMatrixBridge();
-        this.app.locals.teamsMatrixBridge = teamsMatrixBridge;
-        logger.info('Teams-Matrix bridge service initialized');
-      } catch (error) {
-        logger.warn('Teams-Matrix bridge service initialization failed:', error.message);
-      }
-      
-      // Setup routes and socket handlers
       setupRoutes(this.app);
-      
-      // Pass Socket.IO instance to authRoutes for presence tracking
-      const authRoutesModule = require('./routes/authRoutes');
-      if (authRoutesModule.setSocketIO) {
-        authRoutesModule.setSocketIO(this.io);
-      }
-      
-      // Setup WebSocket connection monitoring and throttling
-      this.setupWebSocketMonitoring();
-      
-      // Setup socket handlers with proper throttling
-      const socketHandler = setupSocketHandlers(this.io, {
-        groupService,
-        audioRoutingService: require('./services/audioRoutingService'),
-        recordingService: require('./services/audioRecordingService')
-      });
-      this.app.locals.socketHandler = socketHandler;
-      
-      // Set subscriber audio routing in socket handler if available
-      if (this.app.locals.subscriberAudioRouting) {
-        socketHandler.subscriberAudioRouting = this.app.locals.subscriberAudioRouting;
-      }
-      
-      // Set Socket.IO instance for Matrix service (after socket handlers are set up)
-      const { matrixService } = require('./services/matrixService');
-      if (matrixService && this.io) {
-        matrixService.setSocketIO(this.io);
-        logger.info('Matrix service Socket.IO instance configured for real-time updates');
-        
-        // Set up scheduled room archiving
-        this.setupScheduledArchiving();
-      }
-      
-      // Initialize audio recording service
-      try {
-        await setupAudioRecording(this.mediaSoupWorker);
-      } catch (error) {
-        logger.warn('Audio recording setup failed:', error.message);
-      }
 
-      // Initialize server role and subscriber/publisher services
-      try {
-        const serverRole = await initializeServerRole();
-        
-        if (serverRole.role === 'subscriber') {
-          // Initialize subscriber service to connect to publisher
-          const subscriberService = await initializeSubscriberService();
-          
-          // Initialize subscriber audio routing service
-          const subscriberAudioRouting = new SubscriberAudioRoutingService(subscriberService);
-          await subscriberAudioRouting.initialize();
-          
-          // Link audio routing service to subscriber service
-          subscriberService.setAudioRoutingService(subscriberAudioRouting);
-          
-          // Store in app locals for access from routes/handlers
-          this.app.locals.subscriberAudioRouting = subscriberAudioRouting;
-          
-          // Initialize orchestrator service (managed by subscribers)
-          try {
-            const orchestratorService = getOrchestratorService();
-            await orchestratorService.initialize();
-            this.app.locals.orchestratorService = orchestratorService;
-            logger.info('Orchestrator service initialized');
-          } catch (error) {
-            logger.warn('Orchestrator service initialization failed:', error.message);
-          }
+      await initHaAndSubscribers(this);
+      wireSocketAndSip(this);
+      await initBackgroundJobs(this);
 
-          // Initialize Matrix federation service (for subscriber servers)
-          try {
-            const federationService = getMatrixFederationService();
-            await federationService.initialize();
-            this.app.locals.matrixFederationService = federationService;
-            logger.info('Matrix federation service initialized');
-          } catch (error) {
-            logger.warn('Matrix federation service initialization failed:', error.message);
-          }
-        } else if (serverRole.role === 'publisher') {
-          // Initialize publisher subscriber service to accept subscriber connections
-          this.publisherSubscriberService = new PublisherSubscriberService(this.server);
-          await this.publisherSubscriberService.initialize();
-          // Store instance in app locals for access from routes
-          this.app.locals.publisherSubscriberService = this.publisherSubscriberService;
-        }
-      } catch (error) {
-        logger.warn('Server role initialization failed:', error.message);
-      }
-
-      // Initialize retention policy service (runs on all servers)
-      try {
-        await initializeRetentionPolicyService();
-        logger.info('Retention policy service initialized');
-      } catch (error) {
-        logger.warn('Retention policy service initialization failed:', error.message);
-      }
-      
       logger.info('Server initialization completed successfully');
     } catch (error) {
       logger.error('Failed to initialize server:', error);
@@ -439,6 +312,54 @@ class TradingIntercomServer {
   }
 
   async setupMiddleware() {
+    // Tenant resolution (Pattern A: tenant subdomain)
+    this.app.use((req, res, next) => {
+      try {
+        const defaultTenantSlug = process.env.DEFAULT_TENANT_SLUG || 'default';
+        const rootDomain = process.env.ROOT_DOMAIN || null;
+
+        const hostHeader = req.headers.host || '';
+        const host = String(Array.isArray(hostHeader) ? hostHeader[0] : hostHeader).split(':')[0];
+
+        let tenantSlug = defaultTenantSlug;
+
+        // If host is an IP or localhost, keep default tenant.
+        const isIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
+        if (!isIp && host !== 'localhost' && host !== '127.0.0.1')
+        {
+          const parts = host.split('.');
+          if (parts.length >= 3)
+          {
+            tenantSlug = parts[0] || defaultTenantSlug;
+          }
+          else if (rootDomain && host.endsWith(rootDomain))
+          {
+            // host is exactly rootDomain; use default tenant
+            tenantSlug = defaultTenantSlug;
+          }
+        }
+
+        req.tenantSlug = tenantSlug;
+        req.tenantContext = {
+          tenantSlug,
+          rootDomain
+        };
+      } catch (e) {
+        req.tenantSlug = process.env.DEFAULT_TENANT_SLUG || 'default';
+        req.tenantContext = { tenantSlug: req.tenantSlug, rootDomain: process.env.ROOT_DOMAIN || null };
+      }
+      next();
+    });
+
+    // Disable caching for API routes (fixes confusing 304 Not Modified for JSON endpoints)
+    this.app.use('/api', (req, res, next) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+      next();
+    });
+
     // Security middleware - relaxed for development
     this.app.use(helmet({
       contentSecurityPolicy: {
@@ -474,61 +395,45 @@ class TradingIntercomServer {
       },
     }));
 
-    // Rate limiting (exclude auth routes)
+    // Brute-force protection on login: counts only FAILED attempts
+    // (skipSuccessfulRequests), active in all environments.
+    const loginLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX) || 25,
+      skipSuccessfulRequests: true,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: 'Too many failed login attempts. Please try again later.' },
+    });
+    this.app.use('/api/auth/login', loginLimiter);
+
+    // General API rate limiting (production only).
+    // Note: under an app.use('/api/', ...) mount, req.path has the mount
+    // stripped, so auth paths start with '/auth/'.
     const limiter = rateLimit({
       windowMs: 1 * 60 * 1000, // 1 minute
-      max: 1000, // limit each IP to 1000 requests per windowMs (more generous for dev)
-      message: 'Too many requests from this IP, please try again later.'
+      max: parseInt(process.env.API_RATE_LIMIT_MAX) || 1000,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { error: 'Too many requests from this IP, please try again later.' },
     });
-    
-    // Apply rate limiting to all API routes except auth
-    // Disabled for development
+
     if (process.env.NODE_ENV === 'production') {
       this.app.use('/api/', (req, res, next) => {
-        if (req.path.startsWith('/api/auth/')) {
-          return next(); // Skip rate limiting for auth routes
+        // Login already has its own stricter limiter
+        if (req.path.startsWith('/auth/login')) {
+          return next();
         }
         return limiter(req, res, next);
       });
     }
 
     // CORS configuration
-    const allowedOrigins = new Set([
-      process.env.CLIENT_URL || "http://localhost:3000",
-      "http://127.0.0.1:3000",
-      "http://localhost:3000",
-      "https://127.0.0.1:3000",
-      "https://localhost:3000",
-      "https://192.168.1.41:3000",
-      "http://192.168.1.41:3000"
-    ]);
+    const isOriginAllowed = this.createOriginChecker();
 
     this.app.use(cors({
       origin: (origin, callback) => {
-        // Allow non-browser or same-origin requests (no Origin header)
-        if (!origin) return callback(null, true);
-        if (allowedOrigins.has(origin)) return callback(null, true);
-        
-        // Allow localhost and 127.0.0.1
-        if (origin.startsWith('http://localhost:') || 
-            origin.startsWith('https://localhost:') ||
-            origin.startsWith('http://127.0.0.1:') ||
-            origin.startsWith('https://127.0.0.1:')) {
-          return callback(null, true);
-        }
-        
-        // Allow local network IPs (192.168.x.x, 10.x.x.x, 172.x.x.x) for development
-        const localNetworkRegex = /^https?:\/\/(192\.168\.|10\.|172\.\d{1,3}\.)/;
-        if (localNetworkRegex.test(origin)) {
-          return callback(null, true);
-        }
-        
-        // Allow CLIENT_URL from env
-        const clientUrl = process.env.CLIENT_URL;
-        if (clientUrl && origin.startsWith(clientUrl)) {
-          return callback(null, true);
-        }
-        
+        if (isOriginAllowed(origin)) return callback(null, true);
         return callback(new Error(`CORS blocked for origin: ${origin}`));
       },
       methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
@@ -541,10 +446,26 @@ class TradingIntercomServer {
     this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
     // Serve static files from React build
-    this.app.use(express.static(path.join(__dirname, '../client/build')));
+    // Serve static files from React build (only if build directory exists)
+    const buildPath = path.join(__dirname, '../client/build');
+    if (fs.existsSync(buildPath)) {
+      this.app.use(express.static(buildPath));
+    } else {
+      logger.warn('React client build directory not found. Run "npm run build" in the client directory or use build-client.bat');
+    }
     
-    // Root route
-    this.app.get('/', (req, res) => {
+    // SPA entry for WebView2 media engine (BrowserRouter route)
+    this.app.get('/wpf-media-engine', (req, res) => {
+      const indexPath = path.join(__dirname, '../client/build/index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(503).json({ error: 'Client not built. Please run "npm run build" in the client directory.' });
+      }
+    });
+    
+    // API status endpoint (previously at '/')
+    this.app.get('/api/status', (req, res) => {
       res.json({
         message: 'Trading Intercom API Server',
         status: 'running',
@@ -558,8 +479,34 @@ class TradingIntercomServer {
           compliance: '/api/compliance',
           federation: '/api/federation'
         },
-        client: process.env.CLIENT_URL || 'http://localhost:3000'
+        client: process.env.CLIENT_URL || 'Not configured'
       });
+    });
+
+    // Root route - serve SPA
+    this.app.get('/', (req, res) => {
+      const indexPath = path.join(__dirname, '../client/build/index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(503).json({ 
+          error: 'Client not built. Please run "npm run build" in the client directory or use build-client.bat',
+          instructions: 'To build the client, run: cd client && npm run build'
+        });
+      }
+    });
+
+    // SPA fallback for BrowserRouter routes (exclude API and Socket.IO)
+    this.app.get(/^\/(?!api\/|socket\.io\/).*/, (req, res) => {
+      const indexPath = path.join(__dirname, '../client/build/index.html');
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(503).json({ 
+          error: 'Client not built. Please run "npm run build" in the client directory or use build-client.bat',
+          instructions: 'To build the client, run: cd client && npm run build'
+        });
+      }
     });
 
     // Redis status endpoint
@@ -628,8 +575,12 @@ class TradingIntercomServer {
       });
 
       // Graceful shutdown
-      process.on('SIGTERM', () => this.shutdown());
-      process.on('SIGINT', () => this.shutdown());
+      // Register shutdown handlers once to avoid MaxListenersExceededWarning
+      if (!this._shutdownHandlersRegistered) {
+        this._shutdownHandlersRegistered = true;
+        process.once('SIGTERM', () => this.shutdown());
+        process.once('SIGINT', () => this.shutdown());
+      }
       
     } catch (error) {
       logger.error('Failed to start server:', error);
@@ -638,6 +589,10 @@ class TradingIntercomServer {
   }
 
   async shutdown() {
+    if (this._shutdownInProgress) {
+      return;
+    }
+    this._shutdownInProgress = true;
     logger.info('Shutting down server gracefully...');
     
     try {
@@ -647,6 +602,16 @@ class TradingIntercomServer {
       
       if (this.matrixClient) {
         await this.matrixClient.stopClient();
+      }
+
+      // If SIP HA is enabled, release owned line leases early so failover is immediate.
+      try {
+        const los = this.app?.locals?.lineOwnershipService;
+        if (los && typeof los.stop === 'function') {
+          await los.stop({ releaseLeases: true });
+        }
+      } catch (e) {
+        logger.warn('Failed releasing SIP line leases during shutdown:', e?.message || e);
       }
       
       if (this.sipGateway) {

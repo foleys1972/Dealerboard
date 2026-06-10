@@ -1,5 +1,5 @@
-# Matrix App Service Configuration for TradePulse
-# This configuration allows TradePulse to integrate with Matrix as an app service
+# Matrix App Service Configuration for TradeCom
+# This configuration allows TradeCom to integrate with Matrix as an app service
 
 # App Service ID and URL
 id: "trading-intercom"

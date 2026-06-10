@@ -11,7 +11,6 @@ let producers = new Map(); // Producer ID -> Producer mapping
 let consumers = new Map(); // Consumer ID -> Consumer mapping
 let audioLevelObservers = new Map(); // Group ID -> AudioLevelObserver mapping
 
-// Default config (will be updated from settings)
 let config = {
   numWorkers: process.env.MEDIASOUP_NUM_WORKERS || 4,
   rtcMinPort: parseInt(process.env.RTC_MIN_PORT) || 10000,
@@ -23,12 +22,84 @@ let config = {
   maxParticipantsPerGroup: process.env.MAX_PARTICIPANTS_PER_GROUP || 300,
 };
 
+const DEFAULT_ROUTER_MEDIA_CODECS = [
+  {
+    kind: 'audio',
+    mimeType: 'audio/opus',
+    clockRate: 48000,
+    channels: 2,
+    parameters: {
+      minptime: 10,
+      useinbandfec: 1,
+    },
+  },
+  // Support SIP codecs for bridging
+  {
+    kind: 'audio',
+    mimeType: 'audio/PCMU',
+    clockRate: 8000,
+    channels: 1,
+  },
+  {
+    kind: 'audio',
+    mimeType: 'audio/PCMA',
+    clockRate: 8000,
+    channels: 1,
+  },
+  // Video codecs for WebRTC and Zoom bridging
+  {
+    kind: 'video',
+    mimeType: 'video/VP8',
+    clockRate: 90000,
+    parameters: {
+      'x-google-start-bitrate': 1000
+    }
+  },
+  {
+    kind: 'video',
+    mimeType: 'video/VP9',
+    clockRate: 90000,
+    parameters: {
+      'profile-id': 2,
+      'x-google-start-bitrate': 1000
+    }
+  },
+  {
+    kind: 'video',
+    mimeType: 'video/h264',
+    clockRate: 90000,
+    parameters: {
+      'packetization-mode': 1,
+      'profile-level-id': '42e01f',
+      'level-asymmetry-allowed': 1
+    }
+  },
+];
+
+function getTransportById(transportId) {
+  return transports.get(transportId);
+}
+
+function getGroupRouter(groupId) {
+  return routers.get(groupId);
+}
+
+function listGroupRouterIds() {
+  return Array.from(routers.keys());
+}
+
 /**
  * Load port configuration from system settings
  * Falls back to environment variables or defaults
  */
 async function loadPortConfigFromSettings() {
   try {
+    // Check if pool is available
+    if (!pool) {
+      logger.warn('Database pool not available, using environment variables for port configuration');
+      return false;
+    }
+
     const result = await pool.query(
       `SELECT settings FROM system_settings WHERE id = 'global'`
     );
@@ -37,21 +108,132 @@ async function loadPortConfigFromSettings() {
       const ports = result.rows[0].settings.ports;
       
       if (ports.rtcMinPort !== undefined && ports.rtcMaxPort !== undefined) {
-        config.rtcMinPort = parseInt(ports.rtcMinPort) || config.rtcMinPort;
-        config.rtcMaxPort = parseInt(ports.rtcMaxPort) || config.rtcMaxPort;
-        logger.info(`Port configuration loaded from system settings: ${config.rtcMinPort}-${config.rtcMaxPort}`);
-        return true;
+        const dbMinPort = parseInt(ports.rtcMinPort);
+        const dbMaxPort = parseInt(ports.rtcMaxPort);
+        
+        if (!isNaN(dbMinPort) && !isNaN(dbMaxPort) && dbMinPort > 0 && dbMaxPort > 0) {
+          config.rtcMinPort = dbMinPort;
+          config.rtcMaxPort = dbMaxPort;
+          logger.info(`✅ Port configuration loaded from system settings: ${config.rtcMinPort}-${config.rtcMaxPort}`);
+          return true;
+        } else {
+          logger.warn('Invalid port values in database settings, using environment variables');
+        }
+      } else {
+        logger.debug('No port configuration found in database settings, using environment variables');
       }
+    } else {
+      logger.debug('No system settings found in database, using environment variables');
     }
   } catch (error) {
     logger.warn('Failed to load port configuration from system settings, using environment/default:', error.message);
+    logger.debug('Port config load error details:', { error: error.message, stack: error.stack });
   }
 
   // Fallback to environment variables or defaults
-  config.rtcMinPort = parseInt(process.env.RTC_MIN_PORT) || 10000;
-  config.rtcMaxPort = parseInt(process.env.RTC_MAX_PORT) || 10200;
+  const envMinPort = parseInt(process.env.RTC_MIN_PORT);
+  const envMaxPort = parseInt(process.env.RTC_MAX_PORT);
+  
+  if (!isNaN(envMinPort) && envMinPort > 0) {
+    config.rtcMinPort = envMinPort;
+  } else {
+    config.rtcMinPort = 10000; // Default
+  }
+  
+  if (!isNaN(envMaxPort) && envMaxPort > 0) {
+    config.rtcMaxPort = envMaxPort;
+  } else {
+    config.rtcMaxPort = 10200; // Default
+  }
+  
   logger.info(`Using port configuration from environment/default: ${config.rtcMinPort}-${config.rtcMaxPort}`);
   return false;
+}
+
+async function createWorkerInstance() {
+  const newWorker = await mediasoup.createWorker({
+    logLevel: config.logLevel,
+    rtcMinPort: config.rtcMinPort,
+    rtcMaxPort: config.rtcMaxPort,
+    dtlsCertificateFile: process.env.DTLS_CERT_FILE,
+    dtlsPrivateKeyFile: process.env.DTLS_PRIVATE_KEY_FILE,
+  });
+
+  newWorker.on('died', () => {
+    handleWorkerDeath(newWorker).catch((err) => {
+      logger.error('MediaSoup worker respawn failed fatally, exiting:', err);
+      process.exit(1);
+    });
+  });
+
+  return newWorker;
+}
+
+/**
+ * Remove map entries for resources that were closed by a worker death.
+ * mediasoup closes routers/transports/producers/consumers on the dead worker
+ * automatically; without purging, stale entries block group recreation.
+ */
+function purgeClosedMediaResources() {
+  let purged = { routers: 0, transports: 0, producers: 0, consumers: 0 };
+
+  for (const [id, c] of consumers) {
+    if (c.closed) { consumers.delete(id); purged.consumers++; }
+  }
+  for (const [id, p] of producers) {
+    if (p.closed) { producers.delete(id); purged.producers++; }
+  }
+  for (const [id, t] of transports) {
+    if (t.closed) { transports.delete(id); purged.transports++; }
+  }
+  for (const [groupId, r] of routers) {
+    if (r.closed) {
+      routers.delete(groupId);
+      audioLevelObservers.delete(groupId);
+      purged.routers++;
+    }
+  }
+
+  return purged;
+}
+
+/**
+ * Respawn a dead mediasoup worker instead of killing the whole server.
+ * Calls and groups hosted on the dead worker are lost (their routers are
+ * closed), but the server keeps serving everything else and new groups
+ * can be created immediately on the replacement worker.
+ */
+async function handleWorkerDeath(deadWorker) {
+  logger.error(`MediaSoup worker died (pid ${deadWorker.pid}) — respawning`);
+
+  const idx = workers.indexOf(deadWorker);
+  if (idx !== -1) workers.splice(idx, 1);
+
+  const wasMain = worker === deadWorker;
+  const purged = purgeClosedMediaResources();
+  logger.warn('Purged media resources lost with dead worker:', purged);
+
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const replacement = await createWorkerInstance();
+      workers.splice(idx === -1 ? workers.length : idx, 0, replacement);
+
+      if (wasMain) {
+        worker = replacement;
+        router = await replacement.createRouter({ mediaCodecs: DEFAULT_ROUTER_MEDIA_CODECS });
+        logger.info(`Main MediaSoup worker replaced (pid ${replacement.pid}); default router rebuilt`);
+      } else {
+        logger.info(`MediaSoup worker replaced (pid ${replacement.pid})`);
+      }
+      return;
+    } catch (error) {
+      logger.error(`MediaSoup worker respawn attempt ${attempt}/${maxAttempts} failed:`, error.message);
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
+  }
+
+  throw new Error(`Unable to respawn MediaSoup worker after ${maxAttempts} attempts`);
 }
 
 async function initializeMediaSoup() {
@@ -82,86 +264,22 @@ async function initializeMediaSoup() {
 
     // Create workers
     for (let i = 0; i < config.numWorkers; i++) {
-      const worker = await mediasoup.createWorker({
-        logLevel: config.logLevel,
-        rtcMinPort: config.rtcMinPort,
-        rtcMaxPort: config.rtcMaxPort,
-        dtlsCertificateFile: process.env.DTLS_CERT_FILE,
-        dtlsPrivateKeyFile: process.env.DTLS_PRIVATE_KEY_FILE,
-      });
-
-      worker.on('died', () => {
-        logger.error('MediaSoup worker died, exiting in 2 seconds...');
-        setTimeout(() => process.exit(1), 2000);
-      });
-
-      workers.push(worker);
-      logger.info(`MediaSoup worker ${i + 1} created`);
+      const newWorker = await createWorkerInstance();
+      workers.push(newWorker);
+      logger.info(`MediaSoup worker ${i + 1} created (pid ${newWorker.pid})`);
     }
 
     // Use the first worker as the main worker for now
     worker = workers[0];
 
     // Create a default router for basic operations (non group-specific flows)
-    router = await worker.createRouter({
-      mediaCodecs: [
-        {
-          kind: 'audio',
-          mimeType: 'audio/opus',
-          clockRate: 48000,
-          channels: 2,
-          parameters: {
-            minptime: 10,
-            useinbandfec: 1,
-          },
-        },
-        // Support SIP codecs for bridging
-        {
-          kind: 'audio',
-          mimeType: 'audio/PCMU',
-          clockRate: 8000,
-          channels: 1,
-        },
-        {
-          kind: 'audio',
-          mimeType: 'audio/PCMA',
-          clockRate: 8000,
-          channels: 1,
-        },
-        // Video codecs for WebRTC and Zoom bridging
-        {
-          kind: 'video',
-          mimeType: 'video/VP8',
-          clockRate: 90000,
-          parameters: {
-            'x-google-start-bitrate': 1000
-          }
-        },
-        {
-          kind: 'video',
-          mimeType: 'video/VP9',
-          clockRate: 90000,
-          parameters: {
-            'profile-id': 2,
-            'x-google-start-bitrate': 1000
-          }
-        },
-        {
-          kind: 'video',
-          mimeType: 'video/h264',
-          clockRate: 90000,
-          parameters: {
-            'packetization-mode': 1,
-            'profile-level-id': '42e01f',
-            'level-asymmetry-allowed': 1
-          }
-        },
-      ],
-    });
+    router = await worker.createRouter({ mediaCodecs: DEFAULT_ROUTER_MEDIA_CODECS });
 
     logger.info('MediaSoup SFU initialized successfully', {
       workers: workers.length,
       rtcPorts: `${config.rtcMinPort}-${config.rtcMaxPort}`,
+      listenIp: config.listenIp,
+      announcedIp: config.announcedIp
     });
 
     return worker;
@@ -179,7 +297,8 @@ async function createGroupRouter(groupId) {
     }
 
     if (routers.has(groupId)) {
-      logger.warn(`Router already exists for group ${groupId}`);
+      // Router already exists - this is expected when multiple clients connect to the same group
+      // Return existing router without logging (getOrCreateRouter should be used for this case)
       return routers.get(groupId);
     }
 
@@ -474,13 +593,14 @@ async function getProducerStats(producerId) {
   try {
     const producer = producers.get(producerId);
     if (!producer) {
-      throw new Error(`No producer found with ID ${producerId}`);
+      return null;
     }
 
     return await producer.getStats();
   } catch (error) {
-    logger.error(`Failed to get producer stats for ${producerId}:`, error);
-    return {};
+    // Producers can be closed between polling intervals; treat as expected.
+    logger.warn(`Failed to get producer stats for ${producerId}: ${error?.message || error}`);
+    return null;
   }
 }
 
@@ -488,13 +608,14 @@ async function getConsumerStats(consumerId) {
   try {
     const consumer = consumers.get(consumerId);
     if (!consumer) {
-      throw new Error(`No consumer found with ID ${consumerId}`);
+      return null;
     }
 
     return await consumer.getStats();
   } catch (error) {
-    logger.error(`Failed to get consumer stats for ${consumerId}:`, error);
-    return {};
+    // Consumers can be closed between polling intervals; treat as expected.
+    logger.warn(`Failed to get consumer stats for ${consumerId}: ${error?.message || error}`);
+    return null;
   }
 }
 
@@ -508,7 +629,7 @@ async function closeTransport(transportId) {
 
     transport.close();
     transports.delete(transportId);
-    
+
     logger.info(`Transport closed: ${transportId}`);
   } catch (error) {
     logger.error(`Failed to close transport ${transportId}:`, error);
@@ -525,7 +646,7 @@ async function closeProducer(producerId) {
 
     producer.close();
     producers.delete(producerId);
-    
+
     logger.info(`Producer closed: ${producerId}`);
   } catch (error) {
     logger.error(`Failed to close producer ${producerId}:`, error);
@@ -711,6 +832,48 @@ async function produceMedia(transportId, kind, rtpParameters, appData = {}) {
   }
 }
 
+function trackProducer(producer, groupId) {
+  if (!producer) return producer;
+  producer.appData = {
+    ...(producer.appData || {}),
+    groupId: groupId || producer.appData?.groupId,
+  };
+  producers.set(producer.id, producer);
+  producer.on('transportclose', () => {
+    producers.delete(producer.id);
+  });
+  return producer;
+}
+
+async function pipeProducerToRouter(sourceGroupId, producerId, targetGroupId) {
+  const sourceRouter = await getOrCreateRouter(sourceGroupId);
+  const targetRouter = await getOrCreateRouter(targetGroupId);
+  if (!sourceRouter || !targetRouter) {
+    throw new Error('Router unavailable for pipeToRouter');
+  }
+
+  const result = await sourceRouter.pipeToRouter({
+    producerId,
+    router: targetRouter,
+  });
+
+  if (result?.pipeProducer) {
+    trackProducer(result.pipeProducer, targetGroupId);
+  }
+
+  return result;
+}
+
+async function closePipePair(pair) {
+  if (!pair) return;
+  try {
+    if (pair.pipeConsumer) pair.pipeConsumer.close();
+  } catch {}
+  try {
+    if (pair.pipeProducer) pair.pipeProducer.close();
+  } catch {}
+}
+
 // Consume media (audio/video)
 async function consumeMedia(transportId, producerId, rtpCapabilities) {
   try {
@@ -767,9 +930,15 @@ module.exports = {
   initializeMediaSoup,
   createGroupRouter,
   deleteGroupRouter,
+  createPlainTransport,
+  getOrCreateRouter,
+  getTransportById,
   createWebRtcTransport,
   connectTransport,
   produceMedia,
+  trackProducer,
+  pipeProducerToRouter,
+  closePipePair,
   consumeMedia,
   createProducer,
   createConsumer,
@@ -784,4 +953,6 @@ module.exports = {
   cleanup,
   getWorker: () => worker,
   getRouter: () => router,
+  getGroupRouter,
+  listGroupRouterIds,
 };

@@ -1,105 +1,93 @@
 /**
- * Create Default Admin Account
- * Run this once to create the initial admin user
+ * Create an admin account in PostgreSQL.
+ *
+ * Intended for production bootstrap where default users are disabled
+ * (NODE_ENV=production or ALLOW_BOOTSTRAP_USERS=false).
+ *
+ * Usage:
+ *   node server/scripts/createAdmin.js --username admin --password "Str0ngPass!" [--role platform_admin] [--email admin@example.com]
+ *
+ * Or via environment variables:
+ *   ADMIN_USERNAME=admin ADMIN_PASSWORD="Str0ngPass!" node server/scripts/createAdmin.js
  */
 
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+require('dotenv').config({ path: path.join(__dirname, '..', '..', 'server.env') });
 
-// Simple User schema (create proper User model later)
-const UserSchema = new mongoose.Schema({
-  userId: { type: String, required: true, unique: true },
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true },
-  email: String,
-  role: { type: String, enum: ['user', 'admin'], default: 'user' },
-  name: String,
-  extension: String,
-  createdAt: { type: Date, default: Date.now }
-});
+const bcrypt = require('bcrypt');
+const { randomUUID } = require('crypto');
 
-const User = mongoose.model('User', UserSchema);
+const VALID_ROLES = ['platform_admin', 'tenant_admin', 'user'];
+const MIN_PASSWORD_LENGTH = 8;
 
-async function createAdmin() {
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i].startsWith('--')) {
+      args[argv[i].slice(2)] = argv[i + 1];
+      i++;
+    }
+  }
+  return args;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+
+  const username = args.username || process.env.ADMIN_USERNAME;
+  const password = args.password || process.env.ADMIN_PASSWORD;
+  const role = args.role || process.env.ADMIN_ROLE || 'platform_admin';
+  const email = args.email || process.env.ADMIN_EMAIL || null;
+
+  if (!username || !password) {
+    console.error('Usage: node server/scripts/createAdmin.js --username <name> --password <password> [--role platform_admin] [--email <email>]');
+    process.exit(1);
+  }
+
+  if (!VALID_ROLES.includes(role)) {
+    console.error(`Invalid role "${role}". Valid roles: ${VALID_ROLES.join(', ')}`);
+    process.exit(1);
+  }
+
+  if (String(password).length < MIN_PASSWORD_LENGTH) {
+    console.error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
+    process.exit(1);
+  }
+
+  const { pool } = require('../db/pool');
+  const { createUser, findUsers } = require('../db/users');
+
   try {
-    // Connect to MongoDB
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/trading-intercom';
-    console.log('Connecting to MongoDB:', mongoUri);
-    
-    await mongoose.connect(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
-    
-    console.log('Connected to MongoDB');
-
-    // Check if admin already exists
-    const existingAdmin = await User.findOne({ username: 'admin' });
-    
-    if (existingAdmin) {
-      console.log('Admin account already exists!');
-      console.log('Username: admin');
-      console.log('To reset password, delete the user and run this script again.');
-      process.exit(0);
+    const existing = await findUsers({ username });
+    if (existing && existing.length > 0) {
+      console.error(`User "${username}" already exists (id: ${existing[0].id}). Use the admin UI or password reset to change it.`);
+      process.exit(1);
     }
 
-    // Create admin user
-    const adminPassword = 'TradePulse2025!'; // Default password - CHANGE IN PRODUCTION!
-    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    const admin = new User({
-      userId: 'admin-001',
-      username: 'admin',
+    const user = await createUser({
+      id: `admin-${randomUUID().slice(0, 8)}`,
+      username,
+      email,
+      firstName: args.firstName || 'System',
+      lastName: args.lastName || 'Administrator',
+      displayName: args.displayName || username,
       password: hashedPassword,
-      email: 'admin@tradepulse.local',
-      role: 'admin',
-      name: 'System Administrator',
-      extension: '9999'
+      role,
+      isActive: true,
+      source: 'local',
     });
 
-    await admin.save();
-
-    console.log('✅ Admin account created successfully!');
-    console.log('');
-    console.log('═══════════════════════════════════');
-    console.log('   DEFAULT ADMIN CREDENTIALS');
-    console.log('═══════════════════════════════════');
-    console.log('Username: admin');
-    console.log('Password: TradePulse2025!');
-    console.log('═══════════════════════════════════');
-    console.log('');
-    console.log('⚠️  IMPORTANT: Change this password immediately!');
-    console.log('');
-
-    // Create a test user too
-    const testUserPassword = 'trader123';
-    const testUserHashed = await bcrypt.hash(testUserPassword, 10);
-
-    const testUser = new User({
-      userId: 'user-001',
-      username: 'trader1',
-      password: testUserHashed,
-      email: 'trader1@tradepulse.local',
-      role: 'user',
-      name: 'Test Trader',
-      extension: '1001'
-    });
-
-    await testUser.save();
-
-    console.log('✅ Test user created:');
-    console.log('Username: trader1');
-    console.log('Password: trader123');
-    console.log('');
-
+    console.log(`Created ${role} user "${user.username}" (id: ${user.id}).`);
     process.exit(0);
-
   } catch (error) {
-    console.error('❌ Error creating admin:', error);
+    console.error('Failed to create admin user:', error.message);
     process.exit(1);
+  } finally {
+    try { await pool.end(); } catch { /* pool may already be closed */ }
   }
 }
 
-createAdmin();
-
+main();

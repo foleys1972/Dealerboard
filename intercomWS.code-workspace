@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../LogSentinel"
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}

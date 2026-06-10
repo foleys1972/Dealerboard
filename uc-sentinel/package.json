@@ -1,0 +1,21 @@
+{
+  "name": "uc-sentinel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "build:bundle": "node build/build.mjs",
+    "build:exe": "npm run build:bundle && pkg dist/uc-sentinel.cjs --targets node16-win-x64 --output dist/uc-sentinel.exe"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.2",
+    "pkg": "^5.8.1"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pg": "^8.12.0"
+  }
+}

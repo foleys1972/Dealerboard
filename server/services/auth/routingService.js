@@ -1,6 +1,7 @@
 const logger = require('../../utils/logger');
 const { getActiveTravelOverrideForUser } = require('../../db/auth/travelOverrides');
 const { getLocationSubscriberRouting } = require('../../db/locations/subscriberAssignments');
+const { pickSubscriber } = require('./subscriberSelection');
 
 async function getActiveTravelOverride(userId) {
   if (!userId) return null;
@@ -48,6 +49,25 @@ async function applyRoutingToUserData(userData, dbUser) {
     const assignment = await getLocationSubscriberAssignment(routingLocationId);
     if (assignment) {
       userData.subscriberRouting = assignment;
+
+      // Load-aware selection: prefer the primary subscriber, but overflow to the
+      // secondary when the primary is busy. The client connects to
+      // recommendedSubscriberUrl (clientRoutingService). Only consider a
+      // candidate if its subscriber is currently connected.
+      try {
+        const primary = assignment.primary && assignment.primary.status === 'connected'
+          ? assignment.primary : null;
+        const secondary = assignment.secondary && assignment.secondary.status === 'connected'
+          ? assignment.secondary : null;
+
+        const choice = pickSubscriber({ primary, secondary });
+        if (choice?.serverUrl) {
+          userData.recommendedSubscriberUrl = choice.serverUrl;
+          userData.subscriberRoutingDecision = choice.reason;
+        }
+      } catch (e) {
+        logger.warn('Load-aware subscriber selection failed:', e.message);
+      }
     }
   }
 

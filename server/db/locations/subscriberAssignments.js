@@ -75,10 +75,14 @@ async function getLocationSubscriberRouting(locationId) {
             ps.server_id  AS primary_server_id,
             ps.name       AS primary_name,
             ps.connection_port AS primary_connection_port,
+            ps.status     AS primary_status,
+            ps.metadata->'load' AS primary_load,
             ss.server_url AS secondary_server_url,
             ss.server_id  AS secondary_server_id,
             ss.name       AS secondary_name,
-            ss.connection_port AS secondary_connection_port
+            ss.connection_port AS secondary_connection_port,
+            ss.status     AS secondary_status,
+            ss.metadata->'load' AS secondary_load
      FROM location_subscriber_assignments a
      LEFT JOIN subscribers ps ON ps.id = a.primary_subscriber_id
      LEFT JOIN subscribers ss ON ss.id = a.secondary_subscriber_id
@@ -97,6 +101,8 @@ async function getLocationSubscriberRouting(locationId) {
       name: row.primary_name,
       serverUrl: row.primary_server_url,
       connectionPort: row.primary_connection_port,
+      status: row.primary_status,
+      load: row.primary_load || null,
     } : null,
     secondary: row.secondary_subscriber_id ? {
       subscriberId: row.secondary_subscriber_id,
@@ -104,6 +110,8 @@ async function getLocationSubscriberRouting(locationId) {
       name: row.secondary_name,
       serverUrl: row.secondary_server_url,
       connectionPort: row.secondary_connection_port,
+      status: row.secondary_status,
+      load: row.secondary_load || null,
     } : null,
   };
 }

@@ -1,7 +1,9 @@
 const fs = require('fs-extra');
 const path = require('path');
+const crypto = require('crypto');
 const logger = require('../utils/logger');
 const { encryptionService } = require('./encryptionService');
+const { pool } = require('./databaseService');
 
 class ComplianceService {
   constructor() {
@@ -24,17 +26,125 @@ class ComplianceService {
     this.accessLog = [];
     this.retentionPolicies = new Map();
     this.legalHolds = new Map();
+
+    this.monitorInterval = null;
     
     this.initialize();
   }
 
-  async initialize() {
+  _normalizeConfig(raw) {
+    const base = {
+      enabled: false,
+      regulations: ['mifid2', 'dodd-frank', 'sox'],
+      retentionPeriod: 2555,
+      auditLogging: false,
+      dataClassification: false,
+      accessControl: false,
+      encryptionRequired: false,
+      reportingInterval: 86400000,
+      complianceOfficer: '',
+      legalHold: false
+    };
+
+    const cfg = { ...base, ...(raw && typeof raw === 'object' ? raw : {}) };
+
+    cfg.enabled = !!cfg.enabled;
+    cfg.auditLogging = !!cfg.auditLogging;
+    cfg.dataClassification = !!cfg.dataClassification;
+    cfg.accessControl = !!cfg.accessControl;
+    cfg.encryptionRequired = !!cfg.encryptionRequired;
+    cfg.legalHold = !!cfg.legalHold;
+
+    cfg.reportingInterval = parseInt(cfg.reportingInterval, 10) || base.reportingInterval;
+    if (cfg.reportingInterval < 60000) cfg.reportingInterval = 60000;
+
+    cfg.retentionPeriod = parseInt(cfg.retentionPeriod, 10) || base.retentionPeriod;
+    if (cfg.retentionPeriod < 1) cfg.retentionPeriod = 1;
+
+    if (!Array.isArray(cfg.regulations)) {
+      if (typeof cfg.regulations === 'string') {
+        cfg.regulations = cfg.regulations.split(',').map(r => r.trim()).filter(Boolean);
+      } else {
+        cfg.regulations = base.regulations;
+      }
+    }
+
+    cfg.complianceOfficer = cfg.complianceOfficer ? String(cfg.complianceOfficer) : '';
+
+    return cfg;
+  }
+
+  async loadConfigFromDb(settingsId = 'global') {
+    try {
+      const result = await pool.query(
+        `SELECT settings FROM system_settings WHERE id = $1`,
+        [String(settingsId)]
+      );
+
+      if (result.rows.length === 0) return null;
+      const settings = result.rows[0].settings || {};
+      if (!settings.compliance || typeof settings.compliance !== 'object') return null;
+      return settings.compliance;
+    } catch (error) {
+      logger.warn('Failed to load compliance config from DB (falling back to env)', error.message);
+      return null;
+    }
+  }
+
+  async applyConfig(nextConfig) {
+    const normalized = this._normalizeConfig(nextConfig);
+    const enabledChanged = normalized.enabled !== this.config.enabled;
+    const intervalChanged = normalized.reportingInterval !== this.config.reportingInterval;
+
+    this.config = normalized;
+
     if (!this.config.enabled) {
-      logger.warn('Compliance service is disabled');
+      this.stopComplianceMonitoring();
+      logger.warn('Compliance service disabled via system settings');
       return;
     }
 
+    if (enabledChanged) {
+      await this.loadComplianceData();
+      this.setupRetentionPolicies();
+    }
+
+    if (enabledChanged || intervalChanged) {
+      this.startComplianceMonitoring();
+    }
+
+    logger.info('Compliance service config applied', {
+      enabled: this.config.enabled,
+      auditLogging: this.config.auditLogging,
+      dataClassification: this.config.dataClassification,
+      accessControl: this.config.accessControl,
+      encryptionRequired: this.config.encryptionRequired,
+      legalHold: this.config.legalHold,
+      reportingInterval: this.config.reportingInterval
+    });
+  }
+
+  async initialize() {
     try {
+      // Prefer DB-backed config (Option A). If DB isn't ready yet, fall back to env defaults.
+      try {
+        const dbCfg = await this.loadConfigFromDb('global');
+        if (dbCfg) {
+          await this.applyConfig(dbCfg);
+        } else {
+          // Normalize env defaults so follow-on code can rely on shape.
+          this.config = this._normalizeConfig(this.config);
+        }
+      } catch (error) {
+        logger.warn('Compliance DB config load skipped (using env defaults)', error.message);
+        this.config = this._normalizeConfig(this.config);
+      }
+
+      if (!this.config.enabled) {
+        logger.warn('Compliance service is disabled');
+        return;
+      }
+
       // Load existing compliance data
       await this.loadComplianceData();
       
@@ -213,6 +323,10 @@ class ComplianceService {
 
   // Classify data
   classifyData(dataId, dataType, sensitivity, metadata = {}) {
+    if (!this.config.enabled) return null;
+    if (!this.config.dataClassification) {
+      throw new Error('Data classification is disabled');
+    }
     const classification = {
       id: dataId,
       type: dataType,
@@ -239,6 +353,8 @@ class ComplianceService {
 
   // Log data access
   logDataAccess(dataId, userId, action, details = {}) {
+    if (!this.config.enabled) return;
+    if (!this.config.accessControl) return;
     const accessEntry = {
       id: crypto.randomUUID(),
       dataId,
@@ -283,6 +399,12 @@ class ComplianceService {
 
   // Set legal hold
   setLegalHold(dataId, reason, details = {}) {
+    if (!this.config.enabled) {
+      throw new Error('Compliance service is disabled');
+    }
+    if (!this.config.legalHold) {
+      throw new Error('Legal hold is disabled');
+    }
     const legalHold = {
       id: crypto.randomUUID(),
       dataId,
@@ -308,6 +430,12 @@ class ComplianceService {
 
   // Remove legal hold
   removeLegalHold(dataId, reason, details = {}) {
+    if (!this.config.enabled) {
+      throw new Error('Compliance service is disabled');
+    }
+    if (!this.config.legalHold) {
+      throw new Error('Legal hold is disabled');
+    }
     const legalHold = this.legalHolds.get(dataId);
     if (!legalHold) {
       throw new Error('Legal hold not found');
@@ -526,8 +654,9 @@ class ComplianceService {
 
   // Start compliance monitoring
   startComplianceMonitoring() {
+    this.stopComplianceMonitoring();
     // Set up periodic compliance checks
-    setInterval(async () => {
+    this.monitorInterval = setInterval(async () => {
       try {
         await this.checkDataRetention();
         await this.saveComplianceData();
@@ -537,6 +666,13 @@ class ComplianceService {
     }, this.config.reportingInterval);
     
     logger.info('Compliance monitoring started');
+  }
+
+  stopComplianceMonitoring() {
+    if (this.monitorInterval) {
+      clearInterval(this.monitorInterval);
+      this.monitorInterval = null;
+    }
   }
 
   // Get compliance status

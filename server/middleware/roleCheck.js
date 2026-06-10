@@ -11,7 +11,9 @@ const logger = require('../utils/logger');
 // Role definitions
 const ROLES = {
   USER: 'user',
-  ADMIN: 'admin'
+  ADMIN: 'admin',
+  PLATFORM_ADMIN: 'platform_admin',
+  TENANT_ADMIN: 'tenant_admin'
 };
 
 // Permission definitions for users
@@ -65,6 +67,8 @@ const ADMIN_PERMISSIONS = {
 const getPermissions = (role) => {
   switch(role) {
     case ROLES.ADMIN:
+    case ROLES.PLATFORM_ADMIN:
+    case ROLES.TENANT_ADMIN:
       return ADMIN_PERMISSIONS;
     case ROLES.USER:
     default:
@@ -95,14 +99,21 @@ const requireRole = (allowedRoles) => {
         });
       }
 
-      const userRole = user.role || ROLES.USER;
+      const rawRole = user.role || ROLES.USER;
+      const userRole = rawRole === ROLES.ADMIN ? ROLES.PLATFORM_ADMIN : rawRole;
+
+      // Backward compatibility: if a route still allows legacy 'admin',
+      // treat it as allowing 'platform_admin'.
+      const normalizedAllowedRoles = (allowedRoles || []).map((role) =>
+        role === ROLES.ADMIN ? ROLES.PLATFORM_ADMIN : role
+      );
       
-      if (!allowedRoles.includes(userRole)) {
-        logger.warn(`Access denied for user ${user.id} with role ${userRole} to resource requiring roles: ${allowedRoles.join(', ')}`);
+      if (!normalizedAllowedRoles.includes(userRole)) {
+        logger.warn(`Access denied for user ${user.id} with role ${userRole} to resource requiring roles: ${normalizedAllowedRoles.join(', ')}`);
         return res.status(403).json({ 
           error: 'Access denied',
           message: 'You do not have permission to access this resource',
-          requiredRole: allowedRoles,
+          requiredRole: normalizedAllowedRoles,
           currentRole: userRole
         });
       }
@@ -149,12 +160,12 @@ const requirePermission = (permission) => {
 /**
  * Middleware: Admin only routes
  */
-const adminOnly = requireRole([ROLES.ADMIN]);
+const adminOnly = requireRole([ROLES.PLATFORM_ADMIN]);
 
 /**
  * Middleware: User routes (both user and admin can access)
  */
-const authenticatedUser = requireRole([ROLES.USER, ROLES.ADMIN]);
+const authenticatedUser = requireRole([ROLES.USER, ROLES.PLATFORM_ADMIN, ROLES.TENANT_ADMIN]);
 
 module.exports = {
   ROLES,

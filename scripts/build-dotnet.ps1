@@ -1,4 +1,4 @@
-# Build TradePulse .NET Client
+# Build TradeCom .NET Client
 # This script builds the .NET WPF client application
 
 param(
@@ -11,7 +11,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  TradePulse .NET Client Build Script  " -ForegroundColor Cyan
+Write-Host "  TradeCom .NET Client Build Script   " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -39,6 +39,12 @@ if (-not (Test-Path $clientPath)) {
     exit 1
 }
 
+$projectPath = Join-Path $clientPath "TradePulse.Client.WPF\TradePulse.Client.WPF.csproj"
+if (-not (Test-Path $projectPath)) {
+    Write-Host "X TradePulse.Client.WPF project not found at: $projectPath" -ForegroundColor Red
+    exit 1
+}
+
 Set-Location $clientPath
 Write-Host "Working directory: $clientPath" -ForegroundColor Gray
 Write-Host ""
@@ -46,7 +52,7 @@ Write-Host ""
 # Clean if requested
 if ($Clean) {
     Write-Host "Cleaning previous build..." -ForegroundColor Yellow
-    dotnet clean --configuration $Configuration
+    dotnet clean "$projectPath" --configuration $Configuration
     if ($LASTEXITCODE -ne 0) {
         Write-Host "X Clean failed!" -ForegroundColor Red
         exit 1
@@ -58,7 +64,7 @@ if ($Clean) {
 # Restore packages
 if ($Restore) {
     Write-Host "Restoring NuGet packages..." -ForegroundColor Yellow
-    dotnet restore
+    dotnet restore "$projectPath"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "X Restore failed!" -ForegroundColor Red
         exit 1
@@ -67,9 +73,9 @@ if ($Restore) {
     Write-Host ""
 }
 
-# Build solution
-Write-Host "Building solution (Configuration: $Configuration)..." -ForegroundColor Yellow
-dotnet build --configuration $Configuration --no-restore
+# Build project
+Write-Host "Building project (Configuration: $Configuration)..." -ForegroundColor Yellow
+dotnet build "$projectPath" --configuration $Configuration --no-restore
 if ($LASTEXITCODE -ne 0) {
     Write-Host "X Build failed!" -ForegroundColor Red
     exit 1
@@ -80,7 +86,7 @@ Write-Host ""
 # Run tests if requested
 if ($Test) {
     Write-Host "Running tests..." -ForegroundColor Yellow
-    dotnet test --configuration $Configuration --no-build --verbosity normal
+    dotnet test "$projectPath" --configuration $Configuration --no-build --verbosity normal
     if ($LASTEXITCODE -ne 0) {
         Write-Host "X Tests failed!" -ForegroundColor Red
         exit 1

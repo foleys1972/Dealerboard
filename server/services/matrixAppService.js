@@ -162,7 +162,7 @@ class MatrixAppService {
         msgtype: content.msgtype,
       });
 
-      // Forward message to TradePulse group
+      // Forward message to TradeCom group
       this.forwardMessageToGroup(groupId, {
         sender,
         message: content.body,
@@ -186,7 +186,7 @@ class MatrixAppService {
         membership,
       });
 
-      // Forward membership change to TradePulse group
+      // Forward membership change to TradeCom group
       this.forwardMembershipChangeToGroup(groupId, {
         userId,
         membership,
@@ -260,18 +260,18 @@ class MatrixAppService {
   }
 
   forwardMessageToGroup(groupId, messageData) {
-    // Forward Matrix message to TradePulse group
+    // Forward Matrix message to TradeCom group
     // This would integrate with the group service
-    logger.info('Forwarding message to TradePulse group', {
+    logger.info('Forwarding message to TradeCom group', {
       groupId,
       messageData,
     });
   }
 
   forwardMembershipChangeToGroup(groupId, membershipData) {
-    // Forward membership change to TradePulse group
+    // Forward membership change to TradeCom group
     // This would integrate with the group service
-    logger.info('Forwarding membership change to TradePulse group', {
+    logger.info('Forwarding membership change to TradeCom group', {
       groupId,
       membershipData,
     });

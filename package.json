@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.958.0",
     "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
@@ -19,6 +20,7 @@
     "pg": "^8.16.3",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
+    "ssh2-sftp-client": "^12.0.1",
     "uuid": "^13.0.0",
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0"
@@ -31,13 +33,15 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node server/tests/configValidation.test.js && node server/tests/authMiddleware.test.js && node server/tests/dbExports.test.js && node server/tests/dealerboardValidators.test.js && node server/tests/dealerboardMappers.test.js && node server/tests/dealerboardRouteHelpers.test.js && node server/tests/dealerboardSmoke.test.js && node server/tests/platformAdminRouteHelpers.test.js && node server/tests/platformAdminSmoke.test.js && node server/tests/matrixSmoke.test.js && node server/tests/locationsSmoke.test.js && node server/tests/systemSettingsSmoke.test.js && node server/tests/subscribersSmoke.test.js && node server/tests/recordingsSmoke.test.js && node server/tests/authSmoke.test.js && node server/tests/subscriberApiSmoke.test.js && node server/tests/groupsSmoke.test.js && node server/tests/webrtcSmoke.test.js && node server/tests/remainingRoutesSmoke.test.js && node server/tests/routeIntegration.test.js",
+    "test:subscriber-api": "node server/tests/subscriberApi.test.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "pkg": "^5.8.1"
   }
 }

@@ -40,8 +40,8 @@ class OrchestratorService {
       // Get server role - orchestrator only runs on subscribers
       this.serverRole = await getServerRole();
       
-      if (this.serverRole.role !== 'subscriber') {
-        logger.info('Orchestrator service only runs on subscriber servers');
+      if (!this.serverRole.enableSubscriber) {
+        logger.info('Orchestrator service only runs when subscriber capability is enabled');
         this.isInitialized = true;
         return;
       }
@@ -142,7 +142,7 @@ class OrchestratorService {
          FROM matrix_homeservers mh
          LEFT JOIN locations l ON mh.location_id = l.id
          WHERE mh.subscriber_id = $1 AND mh.is_active = true
-         ORDER BY mh.region, mh.name`,
+         ORDER BY mh.region, mh.server_name`,
         [this.serverRole.serverId]
       );
 
@@ -643,7 +643,9 @@ class OrchestratorService {
         .filter(hs => hs.isActive);
       
       if (allHomeservers.length === 0) {
-        throw new Error('No active homeservers available');
+        // In single-node / early-boot scenarios the orchestrator may not have any managed homeservers yet.
+        // Callers should be able to fall back to the publisher base URL without failing auth flows.
+        return null;
       }
 
       return this.selectBestHomeserver(allHomeservers);

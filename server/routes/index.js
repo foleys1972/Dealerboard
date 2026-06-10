@@ -20,6 +20,9 @@ const dealerboardRoutes = require('./dealerboardRoutes');
 const zoomRoutes = require('./zoomRoutes');
 const teamsRoutes = require('./teamsRoutes');
 const userIntercomRoutes = require('./userIntercomRoutes');
+const platformAdminRoutes = require('./platformAdminRoutes');
+const tenantAdminRoutes = require('./tenantAdminRoutes');
+const agentRoutes = require('./agentRoutes');
 const authRoutesModule = require('./authRoutes');
 const authRoutes = authRoutesModule.router || authRoutesModule;
 
@@ -75,6 +78,15 @@ router.use('/zoom', zoomRoutes);
 router.use('/teams', teamsRoutes);
 // User intercom routes (grid configuration, etc.)
 router.use('/user-intercom', userIntercomRoutes);
+
+// Platform admin routes
+router.use('/platform-admin', platformAdminRoutes);
+
+// Tenant admin routes
+router.use('/tenant-admin', tenantAdminRoutes);
+
+// Local agent routes (subscriber-side remote control, protected by shared secret)
+router.use('/agent', agentRoutes);
 
 function setupRoutes(app) {
   app.use('/api', router);

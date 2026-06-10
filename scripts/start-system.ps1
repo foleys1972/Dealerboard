@@ -1,10 +1,13 @@
-# Start TradePulse System (Frontend + Backend)
+# Start TradeCom System (Frontend + Backend)
 # This script starts both the React frontend and Node.js backend
 
 param(
     [switch]$BackendOnly = $false,
     [switch]$FrontendOnly = $false,
     [switch]$DotNetClient = $false,
+    [switch]$WithDb = $false,
+    [string]$PostgresServiceName = "",
+    [string]$RedisServiceName = "",
     [int]$BackendPort = 5000,
     [int]$FrontendPort = 3000
 )
@@ -12,7 +15,7 @@ param(
 $ErrorActionPreference = "Continue"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  TradePulse System Startup Script     " -ForegroundColor Cyan
+Write-Host "  TradeCom System Startup Script      " -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -62,6 +65,97 @@ function Test-Port {
     } catch {
         return $false
     }
+}
+
+function Read-DotEnvFile {
+    param([string]$Path)
+    $map = @{}
+    if (-not (Test-Path $Path)) { return $map }
+    foreach ($line in Get-Content -LiteralPath $Path) {
+        $trim = $line.Trim()
+        if (-not $trim) { continue }
+        if ($trim.StartsWith('#')) { continue }
+        $idx = $trim.IndexOf('=')
+        if ($idx -lt 1) { continue }
+        $k = $trim.Substring(0, $idx).Trim()
+        $v = $trim.Substring($idx + 1).Trim()
+        if ($k) { $map[$k] = $v }
+    }
+    return $map
+}
+
+function Start-WindowsServiceIfStopped {
+    param(
+        [string]$ServiceName,
+        [string]$Label
+    )
+
+    if (-not $ServiceName) { return $false }
+
+    try {
+        $svc = Get-Service -Name $ServiceName -ErrorAction Stop
+        if ($svc.Status -ne 'Running') {
+            Write-Host "Starting $Label service: $ServiceName" -ForegroundColor Yellow
+            Start-Service -Name $ServiceName -ErrorAction Stop
+        } else {
+            Write-Host "$Label service already running: $ServiceName" -ForegroundColor Green
+        }
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Start-LocalDependencies {
+    param(
+        [string]$PostgresServiceName,
+        [string]$RedisServiceName
+    )
+
+    Write-Host "Starting local dependencies (no Docker)..." -ForegroundColor Cyan
+
+    $pgStarted = $false
+    $redisStarted = $false
+
+    if ($PostgresServiceName) {
+        $pgStarted = Start-WindowsServiceIfStopped -ServiceName $PostgresServiceName -Label 'Postgres'
+    } else {
+        foreach ($candidate in @('postgresql-x64-16','postgresql-x64-15','postgresql-x64-14','postgresql-x64-13','PostgreSQL','postgresql')) {
+            if (Start-WindowsServiceIfStopped -ServiceName $candidate -Label 'Postgres') { $pgStarted = $true; break }
+        }
+    }
+
+    if ($RedisServiceName) {
+        $redisStarted = Start-WindowsServiceIfStopped -ServiceName $RedisServiceName -Label 'Redis'
+    } else {
+        foreach ($candidate in @('MemuraiDeveloper','Redis','RedisServer')) {
+            if (Start-WindowsServiceIfStopped -ServiceName $candidate -Label 'Redis') { $redisStarted = $true; break }
+        }
+    }
+
+    if (-not $pgStarted) {
+        Write-Host "WARNING: Could not start Postgres as a Windows service automatically (service name may differ)." -ForegroundColor Yellow
+    }
+    if (-not $redisStarted) {
+        Write-Host "WARNING: Could not start Redis as a Windows service automatically (service name may differ)." -ForegroundColor Yellow
+    }
+
+    Write-Host "Waiting for Postgres (5432) and Redis (6379)..." -ForegroundColor Yellow
+    $timeoutSeconds = 60
+    $elapsed = 0
+    while ($elapsed -lt $timeoutSeconds) {
+        $pgReady = Test-Port -Port 5432
+        $redisReady = Test-Port -Port 6379
+        if ($pgReady -and $redisReady) {
+            Write-Host "OK Dependencies are ready" -ForegroundColor Green
+            return $true
+        }
+        Start-Sleep -Seconds 1
+        $elapsed += 1
+    }
+
+    Write-Host "WARNING: Dependencies did not become ready within $timeoutSeconds seconds" -ForegroundColor Yellow
+    return $false
 }
 
 # Function to wait for service to be ready
@@ -121,10 +215,57 @@ if (-not $FrontendOnly) {
             Write-Host "  Creating from template (if exists)..." -ForegroundColor Yellow
         }
         
+        if ($WithDb) {
+            $null = Start-LocalDependencies -PostgresServiceName $PostgresServiceName -RedisServiceName $RedisServiceName
+        }
+
+        $serverEnvPath = Join-Path $backendPath ".env"
+        $serverEnv = Read-DotEnvFile -Path $serverEnvPath
+
+        $postgresHost = $serverEnv['POSTGRES_HOST']
+        $postgresPort = $serverEnv['POSTGRES_PORT']
+        $postgresDb = $serverEnv['POSTGRES_DB']
+        $postgresUser = $serverEnv['POSTGRES_USER']
+        $postgresPassword = $serverEnv['POSTGRES_PASSWORD']
+        $postgresSsl = $serverEnv['POSTGRES_SSL']
+
+        $redisHost = $serverEnv['REDIS_HOST']
+        $redisPort = $serverEnv['REDIS_PORT']
+        $redisPassword = $serverEnv['REDIS_PASSWORD']
+        $redisDb = $serverEnv['REDIS_DB']
+
+        if ($WithDb) {
+            if (-not $postgresHost) { $postgresHost = 'localhost' }
+            if (-not $postgresPort) { $postgresPort = '5432' }
+            if (-not $postgresDb) { $postgresDb = 'trading_intercom' }
+            if (-not $postgresUser) { $postgresUser = 'intercom_app' }
+            if (-not $postgresPassword) { $postgresPassword = 'intercom' }
+            if (-not $postgresSsl) { $postgresSsl = 'false' }
+            if (-not $redisHost) { $redisHost = 'localhost' }
+            if (-not $redisPort) { $redisPort = '6379' }
+            if (-not $redisDb) { $redisDb = '0' }
+        }
+
+        $redisEnabledLine = ""
+        if ($WithDb) {
+            $redisEnabledLine = "`$env:REDIS_ENABLED = 'true'"
+        }
+
         # Start backend in new window
         $backendScript = @"
 cd `"$backendPath`"
 `$env:PORT = $BackendPort
+`$env:POSTGRES_HOST = `"$postgresHost`"
+`$env:POSTGRES_PORT = `"$postgresPort`"
+`$env:POSTGRES_DB = `"$postgresDb`"
+`$env:POSTGRES_USER = `"$postgresUser`"
+`$env:POSTGRES_PASSWORD = `"$postgresPassword`"
+`$env:POSTGRES_SSL = `"$postgresSsl`"
+`$env:REDIS_HOST = `"$redisHost`"
+`$env:REDIS_PORT = `"$redisPort`"
+`$env:REDIS_PASSWORD = `"$redisPassword`"
+`$env:REDIS_DB = `"$redisDb`"
+$redisEnabledLine
 node index.js
 pause
 "@

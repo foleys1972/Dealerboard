@@ -1,6 +1,8 @@
 const logger = require('../utils/logger');
 const Redis = require('ioredis');
 
+let redisServiceInstance = null;
+
 class RedisService {
   constructor() {
     this.client = null;
@@ -26,7 +28,6 @@ class RedisService {
       maxRetriesPerRequest: 3,
       retryDelayOnFailover: 100,
       enableReadyCheck: true,
-      maxRetriesPerRequest: 3,
       lazyConnect: true,
       keepAlive: 30000,
       connectTimeout: 10000,
@@ -81,9 +82,6 @@ class RedisService {
         maxRetriesPerRequest: 3,
         scaleReads: 'slave',
         enableReadyCheck: true,
-        redisOptions: {
-          password: this.config.password,
-        },
       });
 
       this.client = this.cluster;
@@ -613,6 +611,7 @@ async function initializeRedis() {
     const redisService = new RedisService();
     await redisService.initialize();
     logger.info('Redis service initialized');
+    redisServiceInstance = redisService;
     return redisService;
   } catch (error) {
     logger.error('Failed to initialize Redis service:', error);
@@ -620,7 +619,12 @@ async function initializeRedis() {
   }
 }
 
+function getRedisService() {
+  return redisServiceInstance;
+}
+
 module.exports = {
   initializeRedis,
+  getRedisService,
   RedisService,
 };

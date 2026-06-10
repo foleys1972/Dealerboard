@@ -1,5 +1,5 @@
 const logger = require('../utils/logger');
-const { getGroupById, createGroup, addUserToGroup, removeUserFromGroup, updateGroup: updateGroupRecord, findGroups } = require('./databaseService');
+const { getGroupById, createGroup, addUserToGroup, removeUserFromGroup, updateGroup: updateGroupRecord, findGroups, getUserById } = require('./databaseService');
 const { MatrixService } = require('./matrixService');
 const { createGroupRouter, deleteGroupRouter } = require('./mediaSoupService');
 const { audioRoutingService } = require('./audioRoutingService');
@@ -151,7 +151,7 @@ class GroupService {
 
       // Create Matrix room for the group
       try {
-        if (this.matrixService.config.enabled) {
+        if (this.matrixService.config.enabled && group.callMode !== 'broadcast') {
           const matrixRoomId = await this.matrixService.createGroupRoom(group.id, {
             name: group.name,
             description: group.description,
@@ -254,9 +254,19 @@ class GroupService {
 
       // Add user to Matrix room if it exists
       try {
-        if (group.matrixRoomId && this.matrixService.config.enabled) {
-          await this.matrixService.inviteUser(group.matrixRoomId, userId);
-          logger.info(`User ${userId} invited to Matrix room ${group.matrixRoomId}`);
+        if (this.matrixService.config.enabled && group.callMode !== 'broadcast' && group.matrixRoomId) {
+            let matrixTarget = userId;
+            try {
+              const dbUser = await getUserById(userId);
+              if (dbUser?.matrixUserId) {
+                matrixTarget = dbUser.matrixUserId;
+              }
+            } catch (e) {
+              logger.warn(`Failed to resolve matrixUserId for invite target ${userId}: ${e.message}`);
+            }
+
+            await this.matrixService.inviteUser(group.matrixRoomId, matrixTarget);
+            logger.info(`User ${userId} invited to Matrix room ${group.matrixRoomId} as ${matrixTarget}`);
         }
       } catch (error) {
         logger.warn(`Failed to invite user ${userId} to Matrix room:`, error.message);
@@ -327,9 +337,19 @@ class GroupService {
 
       // Remove user from Matrix room if it exists
       try {
-        if (group.matrixRoomId && this.matrixService.config.enabled) {
-          await this.matrixService.kickUser(group.matrixRoomId, userId, 'User left group');
-          logger.info(`User ${userId} removed from Matrix room ${group.matrixRoomId}`);
+        if (group.matrixRoomId && this.matrixService.config.enabled && group.callMode !== 'broadcast') {
+          let matrixTarget = userId;
+          try {
+            const dbUser = await getUserById(userId);
+            if (dbUser?.matrixUserId) {
+              matrixTarget = dbUser.matrixUserId;
+            }
+          } catch (e) {
+            logger.warn(`Failed to resolve matrixUserId for kick target ${userId}: ${e.message}`);
+          }
+
+          await this.matrixService.kickUser(group.matrixRoomId, matrixTarget, 'User left group');
+          logger.info(`User ${userId} removed from Matrix room ${group.matrixRoomId} as ${matrixTarget}`);
         }
       } catch (error) {
         logger.warn(`Failed to remove user ${userId} from Matrix room:`, error.message);
@@ -408,9 +428,35 @@ class GroupService {
       lastActivity: state.lastActivity,
       listenerCount: state.listeners?.size || 0,
       persistentListenerCount: state.persistentListeners?.size || 0,
+      listeners: Array.from(state.listeners || []), // Include listener IDs
       activeSpeakers: Array.from(state.activeSpeakers || []),
       segments: state.segments,
     };
+  }
+
+  async removeGroup(groupId) {
+    try {
+      const group = this.activeGroups.get(groupId);
+      if (!group) {
+        throw new Error('Group not found');
+      }
+
+      await updateGroupRecord(groupId, { isActive: false });
+
+      for (const participantId of group.participants || []) {
+        const userSet = this.userGroups.get(participantId);
+        if (userSet) {
+          userSet.delete(groupId);
+        }
+      }
+
+      this.activeGroups.delete(groupId);
+      logger.info(`Group ${groupId} deactivated and removed from cache`);
+      return { success: true, id: groupId };
+    } catch (error) {
+      logger.error('Failed to remove group:', error);
+      throw error;
+    }
   }
 
   // Update group settings
@@ -431,6 +477,16 @@ class GroupService {
 
       // Update database
       await updateGroupRecord(groupId, updates);
+
+      // Option A (broadcast): ensure a private Matrix room exists so only assigned participants can be invited.
+      try {
+        // Broadcasts no longer depend on Matrix rooms. Keep Matrix repair logic for non-broadcast groups only.
+        if (this.matrixService.config.enabled && (updates.callMode || group.callMode) !== 'broadcast') {
+          // no-op for now (existing groups already have matrixRoomId created on createGroup)
+        }
+      } catch (error) {
+        logger.warn(`Failed to ensure Matrix room for broadcast group ${group.id}:`, error.message);
+      }
 
       logger.info(`Group ${groupId} updated`);
       return group;

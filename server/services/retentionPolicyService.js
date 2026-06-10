@@ -149,7 +149,7 @@ class RetentionPolicyService {
   async getUserLocation(userId) {
     try {
       const result = await pool.query(
-        `SELECT location_id FROM users WHERE id = $1`,
+        `SELECT location_id FROM users WHERE id = $1 OR username = $1`,
         [userId]
       );
 
@@ -203,44 +203,50 @@ class RetentionPolicyService {
 
       for (const recording of recordings) {
         try {
-          // Get recording participants to determine location
-          const participants = recording.participants || [];
-          if (participants.length === 0) {
-            // No participants, use default retention
-            const retentionDays = 30;
-            const cutoffDate = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
-            
-            if (recording.startTime && new Date(recording.startTime) < cutoffDate) {
-              await this.deleteRecording(recording);
-              deletedCount++;
-            }
-            continue;
-          }
+          // Recordings are uploaded per-user; apply retention using the uploader's location.
+          const uploaderId = recording.userId || recording.recordingUserId || null;
 
-          // Get location for first participant (or use most restrictive policy)
-          let location = null;
           let retentionDays = 30; // Default
+          let location = null;
           let hasLegalHold = false;
 
-          for (const participant of participants) {
-            const participantId = participant.userId || participant.id || participant;
-            if (!participantId) continue;
-
-            const userLocationId = await this.getUserLocation(participantId);
-            if (userLocationId) {
-              const loc = locations.find(l => l.id === userLocationId);
+          if (uploaderId) {
+            const uploaderLocationId = await this.getUserLocation(String(uploaderId));
+            if (uploaderLocationId) {
+              const loc = locations.find(l => l.id === uploaderLocationId);
               if (loc) {
-                // Use most restrictive (longest) retention period
                 const locRetention = this.getRetentionDays(loc, 'voice');
                 if (locRetention === null) {
-                  // Legal hold - never delete
                   hasLegalHold = true;
-                  break;
-                }
-                if (locRetention > retentionDays) {
+                } else {
                   retentionDays = locRetention;
                   location = loc;
                 }
+              }
+            }
+          }
+
+          // Fallback: if we can't resolve uploader location, fall back to participant-based policy.
+          if (!uploaderId || (!location && !hasLegalHold)) {
+            const participants = recording.participants || [];
+            for (const participant of participants) {
+              const participantId = participant.userId || participant.id || participant;
+              if (!participantId) continue;
+
+              const userLocationId = await this.getUserLocation(String(participantId));
+              if (!userLocationId) continue;
+
+              const loc = locations.find(l => l.id === userLocationId);
+              if (!loc) continue;
+
+              const locRetention = this.getRetentionDays(loc, 'voice');
+              if (locRetention === null) {
+                hasLegalHold = true;
+                break;
+              }
+              if (locRetention > retentionDays) {
+                retentionDays = locRetention;
+                location = loc;
               }
             }
           }
@@ -251,9 +257,7 @@ class RetentionPolicyService {
             continue;
           }
 
-          // Check if recording is older than retention period
           const cutoffDate = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000);
-          
           if (recording.startTime && new Date(recording.startTime) < cutoffDate) {
             await this.deleteRecording(recording);
             deletedCount++;

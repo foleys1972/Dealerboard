@@ -9,6 +9,163 @@ class PublisherSubscriberService {
     this.subscriberSessions = new Map(); // Map<subscriberId, sessionInfo>
     this.wsServer = null;
     this.port = null;
+    this.livenessInterval = null;
+    // Subscribers heartbeat every 30s; evict after 3 missed beats
+    this.heartbeatTimeoutMs = parseInt(process.env.SUBSCRIBER_HEARTBEAT_TIMEOUT_MS) || 90000;
+  }
+
+  /**
+   * Evict subscribers whose heartbeat has gone stale. Without this, a
+   * subscriber that dies without a clean WS close (power loss, network
+   * partition) stays "connected" until TCP gives up — which can be hours.
+   */
+  startLivenessSweep() {
+    if (this.livenessInterval) return;
+
+    this.livenessInterval = setInterval(() => {
+      const now = Date.now();
+
+      for (const [subscriberId, session] of this.subscriberSessions) {
+        const last = session.lastHeartbeat ? session.lastHeartbeat.getTime() : 0;
+        if (now - last <= this.heartbeatTimeoutMs) continue;
+
+        logger.warn(
+          `Subscriber ${subscriberId} (${session.serverName}) heartbeat stale for ${Math.round((now - last) / 1000)}s — evicting`
+        );
+
+        const ws = this.subscriberConnections.get(subscriberId);
+        try {
+          if (ws) ws.terminate();
+        } catch (error) {
+          logger.error(`Error terminating stale subscriber ${subscriberId}:`, error);
+        }
+
+        // ws 'close' handler also cleans up, but terminate() on an already
+        // half-dead socket may not fire it promptly — clean up directly.
+        this.subscriberConnections.delete(subscriberId);
+        this.subscriberSessions.delete(subscriberId);
+        this.updateSubscriberStatus(subscriberId, 'disconnected').catch((error) => {
+          logger.error(`Failed to mark stale subscriber ${subscriberId} disconnected:`, error);
+        });
+      }
+
+      // Proactive WS-level ping so pongs refresh lastHeartbeat even if the
+      // app-level heartbeat message is delayed.
+      for (const [, ws] of this.subscriberConnections) {
+        if (ws.readyState === WebSocket.OPEN) {
+          try { ws.ping(); } catch { /* socket closing */ }
+        }
+      }
+    }, 30000);
+
+    this.livenessInterval.unref?.();
+  }
+
+  _getConfiguredPortPool(settings) {
+    const cfg = settings?.ports?.subscriberPortPool;
+
+    // Array of explicit ports: [5101, 5102, ...]
+    if (Array.isArray(cfg) && cfg.length) {
+      const ports = cfg
+        .map(p => parseInt(p, 10))
+        .filter(p => Number.isFinite(p) && p >= 1024 && p <= 65535);
+      return Array.from(new Set(ports));
+    }
+
+    // String range: "5100-5500" or "5100..5500"
+    if (typeof cfg === 'string' && cfg.trim()) {
+      const m = cfg.trim().match(/^(\d{2,5})\s*(?:-|\.\.)\s*(\d{2,5})$/);
+      if (m) {
+        const start = parseInt(m[1], 10);
+        const end = parseInt(m[2], 10);
+        if (Number.isFinite(start) && Number.isFinite(end) && start >= 1024 && end <= 65535 && start <= end) {
+          const ports = [];
+          for (let p = start; p <= end; p++) ports.push(p);
+          return ports;
+        }
+      }
+    }
+
+    // Env fallback: SUBSCRIBER_PORT_POOL="5100-5500" or "5101,5102"
+    const env = (process.env.SUBSCRIBER_PORT_POOL || '').trim();
+    if (env) {
+      const m = env.match(/^(\d{2,5})\s*(?:-|\.\.)\s*(\d{2,5})$/);
+      if (m) {
+        const start = parseInt(m[1], 10);
+        const end = parseInt(m[2], 10);
+        if (start >= 1024 && end <= 65535 && start <= end) {
+          const ports = [];
+          for (let p = start; p <= end; p++) ports.push(p);
+          return ports;
+        }
+      }
+
+      const ports = env
+        .split(',')
+        .map(s => parseInt(s.trim(), 10))
+        .filter(p => Number.isFinite(p) && p >= 1024 && p <= 65535);
+      if (ports.length) return Array.from(new Set(ports));
+    }
+
+    // Default enterprise range
+    const ports = [];
+    for (let p = 5100; p <= 5500; p++) ports.push(p);
+    return ports;
+  }
+
+  async _getSystemSettings() {
+    const result = await pool.query(
+      `SELECT settings FROM system_settings WHERE id = 'global'`
+    );
+    return result.rows.length > 0 ? (result.rows[0].settings || {}) : {};
+  }
+
+  async _allocateSubscriberPort(subscriberInfo) {
+    // subscriberInfo is a row from subscribers
+    const settings = await this._getSystemSettings();
+    const poolPorts = this._getConfiguredPortPool(settings);
+
+    // Existing allocation?
+    const existing = await pool.query(
+      `SELECT port FROM subscriber_port_allocations WHERE subscriber_id = $1`,
+      [subscriberInfo.id]
+    );
+    if (existing.rows.length > 0) {
+      const port = existing.rows[0].port;
+      // Keep subscribers.connection_port in sync
+      await pool.query(
+        `UPDATE subscribers SET connection_port = $1, updated_at = NOW() WHERE id = $2`,
+        [port, subscriberInfo.id]
+      );
+      return port;
+    }
+
+    // Reserve first free port from pool.
+    // Concurrency-safe via unique(port) constraint.
+    for (const port of poolPorts) {
+      try {
+        await pool.query(
+          `INSERT INTO subscriber_port_allocations (subscriber_id, port)
+           VALUES ($1, $2)`,
+          [subscriberInfo.id, port]
+        );
+
+        await pool.query(
+          `UPDATE subscribers SET connection_port = $1, updated_at = NOW() WHERE id = $2`,
+          [port, subscriberInfo.id]
+        );
+
+        return port;
+      } catch (e) {
+        // 23505 = unique_violation
+        if (e && e.code === '23505') {
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    throw new Error('No available ports in subscriber port pool');
   }
 
   async initialize() {
@@ -27,11 +184,26 @@ class PublisherSubscriberService {
 
       this.port = port;
 
-      // Create WebSocket server for subscriber connections
-      this.wsServer = new WebSocket.Server({
-        server: this.server,
-        path: '/subscriber'
-      });
+      // Create WebSocket server for subscriber connections.
+      // IMPORTANT: noServer mode + manual upgrade routing. Binding ws directly to the
+      // HTTP server with a `path` makes ws abort every non-matching upgrade request,
+      // which breaks Socket.IO's websocket transport (forcing all clients onto polling).
+      this.wsServer = new WebSocket.Server({ noServer: true });
+
+      this.upgradeHandler = (req, socket, head) => {
+        let pathname = '';
+        try {
+          pathname = new URL(req.url, 'http://localhost').pathname;
+        } catch {}
+        if (pathname !== '/subscriber') {
+          // Not ours — leave it for Socket.IO (or engine.io's cleanup) to handle.
+          return;
+        }
+        this.wsServer.handleUpgrade(req, socket, head, (ws) => {
+          this.wsServer.emit('connection', ws, req);
+        });
+      };
+      this.server.on('upgrade', this.upgradeHandler);
 
       this.wsServer.on('connection', (ws, req) => {
         this.handleSubscriberConnection(ws, req);
@@ -40,6 +212,8 @@ class PublisherSubscriberService {
       this.wsServer.on('error', (error) => {
         logger.error('Subscriber WebSocket server error:', error);
       });
+
+      this.startLivenessSweep();
 
       logger.info(`Publisher subscriber service initialized on port ${port} (path: /subscriber)`);
     } catch (error) {
@@ -80,6 +254,25 @@ class PublisherSubscriberService {
               subscriberId = authResult.subscriberId;
               subscriberInfo = authResult.subscriberInfo;
 
+              let assignedPort = null;
+              let assignedUrl = null;
+              try {
+                assignedPort = await this._allocateSubscriberPort(subscriberInfo);
+                const baseUrl = (subscriberInfo.server_url || '').replace(/\/$/, '');
+                if (baseUrl) {
+                  assignedUrl = `${baseUrl.replace(/:\d+$/, '')}:${assignedPort}`;
+                }
+              } catch (e) {
+                ws.send(JSON.stringify({
+                  type: 'auth-response',
+                  success: false,
+                  error: e?.message || 'Failed to allocate subscriber port'
+                }));
+                logger.warn(`Port allocation failed for subscriber ${subscriberInfo.server_id}: ${e?.message || e}`);
+                ws.close(1011, 'Port allocation failed');
+                return;
+              }
+
               // Store connection
               this.subscriberConnections.set(subscriberId, ws);
               this.subscriberSessions.set(subscriberId, {
@@ -98,7 +291,9 @@ class PublisherSubscriberService {
                 type: 'auth-response',
                 success: true,
                 message: 'Authenticated successfully',
-                serverId: subscriberInfo.server_id
+                serverId: subscriberInfo.server_id,
+                assignedPort,
+                assignedUrl
               }));
 
               logger.info(`Subscriber authenticated: ${subscriberInfo.name} (${subscriberInfo.server_id})`);
@@ -285,6 +480,11 @@ class PublisherSubscriberService {
   async stop() {
     logger.info('Stopping publisher subscriber service...');
 
+    if (this.livenessInterval) {
+      clearInterval(this.livenessInterval);
+      this.livenessInterval = null;
+    }
+
     // Close all connections
     for (const [subscriberId, connection] of this.subscriberConnections) {
       try {
@@ -297,6 +497,11 @@ class PublisherSubscriberService {
 
     this.subscriberConnections.clear();
     this.subscriberSessions.clear();
+
+    if (this.upgradeHandler) {
+      this.server.removeListener('upgrade', this.upgradeHandler);
+      this.upgradeHandler = null;
+    }
 
     if (this.wsServer) {
       this.wsServer.close();

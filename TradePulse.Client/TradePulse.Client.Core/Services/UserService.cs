@@ -35,7 +35,7 @@ public class UserService : IUserService
             }
             
             // Create request with auth header
-            var request = new HttpRequestMessage(HttpMethod.Get, "/api/auth/users");
+            var request = new HttpRequestMessage(HttpMethod.Get, "/api/auth/directory");
             
             if (!string.IsNullOrEmpty(authToken))
             {
@@ -86,9 +86,13 @@ public class UserService : IUserService
                 FirstName = u.FirstName ?? "",
                 LastName = u.LastName ?? "",
                 Status = u.Status ?? "offline",
+                IsOnline = !string.IsNullOrWhiteSpace(u.Status) && !string.Equals(u.Status, "offline", StringComparison.OrdinalIgnoreCase),
                 IsActive = u.IsActive,
                 Extension = u.Extension,
+                SipUri = u.SipUri,
                 Department = u.Department,
+                TenantId = u.TenantId,
+                SiteId = u.SiteId,
                 Role = u.Role ?? "user",
                 IntercomEnabled = u.IntercomEnabled,
                 DealerboardEnabled = u.DealerboardEnabled
@@ -189,7 +193,10 @@ public class UserService : IUserService
         public string? Role { get; set; }
         public bool IsActive { get; set; }
         public string? Extension { get; set; }
+        public string? SipUri { get; set; }
         public string? Department { get; set; }
+        public string? TenantId { get; set; }
+        public string? SiteId { get; set; }
         public string? Status { get; set; }
         public bool IntercomEnabled { get; set; }
         public bool DealerboardEnabled { get; set; }

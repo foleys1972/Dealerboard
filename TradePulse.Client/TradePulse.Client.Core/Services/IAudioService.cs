@@ -10,6 +10,7 @@ public interface IAudioService
     bool IsMuted { get; set; }
     
     event EventHandler<byte[]>? AudioDataAvailable;
+    event EventHandler<byte[]>? PlaybackAudioAvailable;
     event EventHandler<float>? AudioLevelChanged;
     
     Task InitializeAsync();

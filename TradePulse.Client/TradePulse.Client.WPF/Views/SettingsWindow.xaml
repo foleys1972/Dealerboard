@@ -21,6 +21,39 @@
         <SolidColorBrush x:Key="TeamsDarkBorder" Color="#14FFFFFF"/>
         <SolidColorBrush x:Key="TeamsBlue" Color="#0078d4"/>
         <SolidColorBrush x:Key="TeamsBlueHover" Color="#106ebe"/>
+
+        <Style x:Key="DarkComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="{StaticResource TeamsDarkBackground}"/>
+            <Setter Property="Foreground" Value="{StaticResource TeamsDarkText}"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="{StaticResource TeamsDarkSurface}"/>
+                    <Setter Property="Foreground" Value="{StaticResource TeamsDarkText}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DarkComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource TeamsDarkSurface}"/>
+            <Setter Property="Foreground" Value="{StaticResource TeamsDarkText}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource TeamsDarkBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource DarkComboBoxItemStyle}"/>
+        </Style>
+
+        <Style x:Key="DarkCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{StaticResource TeamsDarkText}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,2,0,2"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
     </Window.Resources>
     
     <Grid Background="{StaticResource TeamsDarkBackground}">
@@ -66,9 +99,7 @@
                                   SelectedItem="{Binding SelectedInputDevice}"
                                   DisplayMemberPath="Name"
                                   materialDesign:HintAssist.Hint="Select microphone"
-                                  Background="{StaticResource TeamsDarkBackground}"
-                                  Foreground="{StaticResource TeamsDarkText}"
-                                  BorderBrush="{StaticResource TeamsDarkBorder}"
+                                  Style="{StaticResource DarkComboBoxStyle}"
                                   Margin="0,0,0,16"/>
                         
                         <StackPanel Orientation="Horizontal">
@@ -111,9 +142,7 @@
                                   SelectedItem="{Binding SelectedOutputDevice}"
                                   DisplayMemberPath="Name"
                                   materialDesign:HintAssist.Hint="Select speaker"
-                                  Background="{StaticResource TeamsDarkBackground}"
-                                  Foreground="{StaticResource TeamsDarkText}"
-                                  BorderBrush="{StaticResource TeamsDarkBorder}"
+                                  Style="{StaticResource DarkComboBoxStyle}"
                                   Margin="0,0,0,16"/>
                         
                         <StackPanel Orientation="Horizontal">
@@ -155,12 +184,35 @@
                                   SelectedItem="{Binding SelectedVideoDevice}"
                                   DisplayMemberPath="Name"
                                   materialDesign:HintAssist.Hint="Select camera"
-                                  Background="{StaticResource TeamsDarkBackground}"
-                                  Foreground="{StaticResource TeamsDarkText}"
-                                  BorderBrush="{StaticResource TeamsDarkBorder}"
+                                  Style="{StaticResource DarkComboBoxStyle}"
                                   Margin="0,0,0,12"/>
                         
-                        <TextBlock Text="Video device enumeration will be available in a future update." 
+                        <TextBlock Text="If no camera is listed, check Windows Camera privacy settings and Device Manager." 
+                                   FontSize="12"
+                                   Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{StaticResource TeamsDarkSurface}"
+                        Margin="0,24,0,0"
+                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                        BorderThickness="1"
+                        CornerRadius="4"
+                        Padding="20">
+                    <StackPanel>
+                        <TextBlock Text="Network / Certificates"
+                                   FontSize="16"
+                                   FontWeight="600"
+                                   Foreground="{StaticResource TeamsDarkText}"
+                                   Margin="0,0,0,12"/>
+
+                        <CheckBox Content="Allow insecure certificates (self-signed/invalid HTTPS)"
+                                  IsChecked="{Binding AllowInsecureCertificates}"
+                                  Style="{StaticResource DarkCheckBoxStyle}"
+                                  Margin="0,0,0,8"/>
+
+                        <TextBlock Text="Enable this if the server uses a self-signed certificate or the certificate chain is not trusted on this PC."
                                    FontSize="12"
                                    Foreground="{StaticResource TeamsDarkTextSecondary}"
                                    TextWrapping="Wrap"/>

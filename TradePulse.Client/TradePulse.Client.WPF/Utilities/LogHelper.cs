@@ -10,7 +10,7 @@ public static class LogHelper
     {
         return Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "TradePulse",
+            "TradeCom",
             "Logs"
         );
     }

@@ -15,5 +15,7 @@ public interface IAuthService
     Task<bool> LoginWithTokenAsync(string token);
     Task LogoutAsync();
     Task<bool> RefreshTokenAsync();
+    void UpdateBaseAddress(string serverUrl);
+    string GetActiveServerUrl();
 }
 

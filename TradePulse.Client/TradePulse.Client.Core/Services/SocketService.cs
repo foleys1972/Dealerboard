@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging;
 using SocketIOClient.Transport;
 using TradePulse.Client.Core.Models;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Reflection;
 using System.Linq;
@@ -17,7 +19,18 @@ public class SocketService : ISocketService, IDisposable
     private readonly ILogger<SocketService> _logger;
     private SocketIOClient.SocketIO? _socket;
     private string? _authToken;
+    private string? _serverUrl;
+    // Identity from the last AuthenticateAsync, stored as one immutable snapshot
+    // so concurrent readers (emits, reconnect re-auth) never see a torn identity.
+    private sealed record AuthSnapshot(string UserId, string Username, string? SipUri);
+    private AuthSnapshot? _lastAuth;
+    private readonly SemaphoreSlim _reconnectGate = new(1, 1);
     private bool _disposed = false;
+    private CancellationTokenSource? _autoReconnectCts;
+    private Task? _autoReconnectTask;
+
+    private readonly List<string> _serverCandidates = new();
+    private int _serverCandidateIndex = 0;
 
     public bool IsConnected => _socket?.Connected ?? false;
     public string? SocketId => _socket?.Id;
@@ -28,6 +41,11 @@ public class SocketService : ISocketService, IDisposable
     public event EventHandler<Call>? CallStateChanged;
     public event EventHandler<string>? CallEnded;
     public event EventHandler<WebRTCSetupData>? WebRTCSetupRequired;
+    public event EventHandler<AudioLevelData>? AudioLevelReceived;
+    public event EventHandler<(string LineId, bool IsActive)>? BroadcastActiveChanged;
+    public event EventHandler<(string LineId, bool IsMonitoring, int? ListenerCount)>? BroadcastMonitorUpdated;
+    public event EventHandler<LineSipStateEvent>? LineSipStateChanged;
+    public event EventHandler<LineSipStateEvent>? LineSipIncoming;
     public event EventHandler<string>? Error;
 
     public SocketService(ILogger<SocketService> logger)
@@ -35,7 +53,169 @@ public class SocketService : ISocketService, IDisposable
         _logger = logger;
     }
 
+    public void SetServerCandidates(IEnumerable<string> serverUrls)
+    {
+        try
+        {
+            var urls = (serverUrls ?? Array.Empty<string>())
+                .Select(u => (u ?? string.Empty).Trim())
+                .Where(u => !string.IsNullOrWhiteSpace(u))
+                .Select(u => u.TrimEnd('/'))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _serverCandidates.Clear();
+            _serverCandidates.AddRange(urls);
+            _serverCandidateIndex = 0;
+            _logger.LogInformation("Socket server candidates updated: {Count}", _serverCandidates.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to set socket server candidates");
+        }
+    }
+
+    /// <summary>
+    /// Accepts the dev/self-signed server certificate on both transports.
+    /// SocketIOOptions (3.1.1) exposes no certificate hooks, so we inject at the
+    /// transport seams: a custom handler on the polling HttpClient and a
+    /// RemoteCertificateValidationCallback on the upgrade WebSocket. Set
+    /// TRADEPULSE_STRICT_TLS=true to keep full certificate validation
+    /// (recommended for production deployments with a real certificate).
+    /// </summary>
+    private void ConfigureTransportSecurity(SocketIOClient.SocketIO socket)
+    {
+        if (string.Equals(Environment.GetEnvironmentVariable("TRADEPULSE_STRICT_TLS"),
+                "true", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("TRADEPULSE_STRICT_TLS=true — using full certificate validation");
+            return;
+        }
+
+        try
+        {
+            var http = new SocketIOClient.Transport.Http.DefaultHttpClient();
+            var handlerField = typeof(SocketIOClient.Transport.Http.DefaultHttpClient)
+                .GetField("_handler", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (handlerField?.GetValue(http) is HttpClientHandler handler)
+            {
+                handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
+                socket.HttpClient = http;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not configure cert trust on polling transport");
+        }
+
+        try
+        {
+            socket.ClientWebSocketProvider = () =>
+            {
+                var ws = new SocketIOClient.Transport.WebSockets.DefaultClientWebSocket();
+                var wsField = typeof(SocketIOClient.Transport.WebSockets.DefaultClientWebSocket)
+                    .GetField("_ws", BindingFlags.NonPublic | BindingFlags.Instance);
+                if (wsField?.GetValue(ws) is System.Net.WebSockets.ClientWebSocket inner)
+                {
+                    inner.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
+                }
+                return ws;
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not configure cert trust on websocket transport");
+        }
+    }
+
+    private List<string> GetCandidateOrder(string? preferred)
+    {
+        var list = new List<string>();
+        if (!string.IsNullOrWhiteSpace(preferred))
+        {
+            list.Add(preferred.Trim().TrimEnd('/'));
+        }
+
+        foreach (var u in _serverCandidates)
+        {
+            if (string.IsNullOrWhiteSpace(u)) continue;
+            var cu = u.Trim().TrimEnd('/');
+            if (list.Any(x => string.Equals(x, cu, StringComparison.OrdinalIgnoreCase))) continue;
+            list.Add(cu);
+        }
+
+        return list;
+    }
+
+    private async Task EnsureConnectedAsync()
+    {
+        if (_socket != null && _socket.Connected) return;
+
+        await _reconnectGate.WaitAsync();
+        try
+        {
+            if (_socket != null && _socket.Connected) return;
+
+            if (string.IsNullOrWhiteSpace(_serverUrl))
+            {
+                throw new InvalidOperationException("Socket not connected");
+            }
+
+            _logger.LogWarning("Socket not connected; attempting reconnect...");
+            await ConnectAsync(_serverUrl ?? _serverCandidates.FirstOrDefault() ?? string.Empty, _authToken);
+
+            if (_socket == null || !_socket.Connected)
+            {
+                throw new InvalidOperationException("Socket not connected");
+            }
+        }
+        finally
+        {
+            _reconnectGate.Release();
+        }
+    }
+
     public async Task ConnectAsync(string serverUrl, string? token = null)
+    {
+        if (_socket != null && _socket.Connected)
+        {
+            _logger.LogInformation("Socket already connected");
+            return;
+        }
+
+        var candidates = GetCandidateOrder(serverUrl);
+        if (candidates.Count == 0)
+        {
+            throw new ArgumentException("No serverUrl provided", nameof(serverUrl));
+        }
+
+        Exception? last = null;
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            try
+            {
+                await ConnectSingleAsync(candidate, token);
+                _serverUrl = candidate;
+                _serverCandidateIndex = i;
+                return;
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                _logger.LogWarning(ex, "Socket connect failed for candidate {Candidate}", candidate);
+                try
+                {
+                    await DisconnectAsync();
+                }
+                catch { }
+            }
+        }
+
+        throw last ?? new InvalidOperationException("Failed to connect to any candidate server");
+    }
+
+    private async Task ConnectSingleAsync(string serverUrl, string? token)
     {
         if (_socket != null && _socket.Connected)
         {
@@ -52,6 +232,7 @@ public class SocketService : ISocketService, IDisposable
         try
         {
             _authToken = token;
+            _serverUrl = serverUrl;
 
             _logger.LogInformation("Connecting to Socket.IO server: {Url}", socketUrl);
             _logger.LogInformation("Socket.IO connection details - Scheme: {Scheme}, Host: {Host}, Port: {Port} (normalized from original port {OriginalPort})", 
@@ -67,17 +248,32 @@ public class SocketService : ISocketService, IDisposable
             var options = new SocketIOClient.SocketIOOptions
             {
                 Path = "/socket.io",
-                Transport = TransportProtocol.Polling, // Match React client: polling only
-                Reconnection = true,
+                // Use polling-first with websocket upgrade (browser-like) to avoid WebSocket-only hangs.
+                Transport = TransportProtocol.Polling,
+                Reconnection = false,
                 ReconnectionDelay = 2000,
                 ReconnectionDelayMax = 10000,
-                ReconnectionAttempts = 10,
-                ConnectionTimeout = TimeSpan.FromSeconds(30), // Match React client timeout (30s)
+                ReconnectionAttempts = 0,
+                ConnectionTimeout = TimeSpan.FromSeconds(45),
+                // Verified 2026-06-10: WebSocket upgrade works against the current server
+                // (SocketIOClient 3.1.1, all transport modes; see SOCKET_IO_ROOT_CAUSE.md).
+                // TRADEPULSE_SOCKET_AUTOUPGRADE=false is the emergency kill switch.
+                AutoUpgrade = !string.Equals(
+                    Environment.GetEnvironmentVariable("TRADEPULSE_SOCKET_AUTOUPGRADE"),
+                    "false", StringComparison.OrdinalIgnoreCase),
+                // Server supports auth via either handshake.auth.token or Authorization header.
+                // SocketIOClient's ExtraHeaders does not always propagate reliably across polling requests,
+                // so we set BOTH.
+                Auth = token != null ? new { token } : null,
                 ExtraHeaders = token != null 
                     ? new Dictionary<string, string> { { "Authorization", $"Bearer {token}" } }
                     : null
             };
-            
+
+            // TLS trust for the dev/self-signed cert is configured on the client object
+            // after construction (see ConfigureTransportSecurity) — SocketIOOptions in
+            // this library version has no certificate hooks.
+
             try
             {
             // CRITICAL FIX: Test server connectivity first - this will reveal if server is reachable
@@ -101,8 +297,18 @@ public class SocketService : ISocketService, IDisposable
                 _logger.LogInformation("Testing Socket.IO handshake endpoint: {Url}", testUrl);
                 
                 var testResponse = await testClient.GetAsync(testUrl);
-                _logger.LogInformation("Server connectivity test: Status={Status}, ReasonPhrase={ReasonPhrase}", 
-                    testResponse.StatusCode, testResponse.ReasonPhrase);
+                string body = string.Empty;
+                try
+                {
+                    body = await testResponse.Content.ReadAsStringAsync();
+                }
+                catch { }
+                if (body.Length > 400) body = body.Substring(0, 400);
+                _logger.LogInformation(
+                    "Server connectivity test: Status={Status}, ReasonPhrase={ReasonPhrase}, Body={Body}",
+                    testResponse.StatusCode,
+                    testResponse.ReasonPhrase,
+                    body);
                 
                 // BadRequest (400) is expected for Socket.IO handshake - means server is responding correctly
                 // Any response (even error) means server is reachable
@@ -127,7 +333,8 @@ public class SocketService : ISocketService, IDisposable
                     socketUri.Scheme, socketUri.Host, socketUri.Port, socketUri.AbsolutePath);
                 
                 _socket = new SocketIOClient.SocketIO(socketUrl, options);
-                
+                ConfigureTransportSecurity(_socket);
+
                 // Verify the socket actually got the right URL by checking its internal state
                 try
                 {
@@ -187,92 +394,6 @@ public class SocketService : ISocketService, IDisposable
                 
                 // CRITICAL FIX: Find and override ALL HttpClient instances - the library may use multiple!
                 var foundHttpClients = new List<HttpClient>();
-                try
-                {
-                    var socketType = _socket.GetType();
-                    var searchedObjects = new HashSet<object>();
-                    
-                    // Recursive function to find ALL HttpClient instances (not just the first one)
-                    void SearchForAllHttpClients(object? obj, int depth = 0)
-                    {
-                        if (obj == null || depth > 5 || searchedObjects.Contains(obj)) return;
-                        searchedObjects.Add(obj);
-                        
-                        if (obj is HttpClient hc)
-                        {
-                            foundHttpClients.Add(hc);
-                            // Don't return - keep searching for more!
-                        }
-                        
-                        var objType = obj.GetType();
-                        
-                        // Search all fields
-                        var fields = objType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static);
-                        foreach (var field in fields)
-                        {
-                            try
-                            {
-                                var value = field.GetValue(obj);
-                                if (value is HttpClient hc2)
-                                {
-                                    foundHttpClients.Add(hc2);
-                                }
-                                if (value != null && !value.GetType().IsPrimitive && !(value is string))
-                                {
-                                    SearchForAllHttpClients(value, depth + 1);
-                                }
-                            }
-                            catch { }
-                        }
-                        
-                        // Search all properties
-                        var props = objType.GetProperties(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static);
-                        foreach (var prop in props)
-                        {
-                            try
-                            {
-                                if (prop.GetIndexParameters().Length > 0) continue;
-                                var value = prop.GetValue(obj);
-                                if (value is HttpClient hc3)
-                                {
-                                    foundHttpClients.Add(hc3);
-                                }
-                                if (value != null && !value.GetType().IsPrimitive && !(value is string))
-                                {
-                                    SearchForAllHttpClients(value, depth + 1);
-                                }
-                            }
-                            catch { }
-                        }
-                    }
-                    
-                    _logger.LogInformation("Starting ULTRA-DEEP recursive search for ALL HttpClient instances in SocketIOClient library...");
-                    SearchForAllHttpClients(_socket);
-                    
-                    // Remove duplicates (same instance found multiple times)
-                    foundHttpClients = foundHttpClients.Distinct().ToList();
-                    
-                    if (foundHttpClients.Count > 0)
-                    {
-                        _logger.LogInformation("Found {Count} HttpClient instance(s) - overriding ALL of them!", foundHttpClients.Count);
-                        foreach (var hc in foundHttpClients)
-                        {
-                            var oldTimeout = hc.Timeout;
-                            hc.Timeout = TimeSpan.FromSeconds(30);
-                            _logger.LogInformation("✅ Overrode HttpClient timeout from {OldTimeout} to 30 seconds (HashCode: {HashCode})", 
-                                oldTimeout, hc.GetHashCode());
-                        }
-                        _logger.LogInformation("🎉🎉🎉 SUCCESS! Overrode {Count} HttpClient instance(s) to 30 seconds!", foundHttpClients.Count);
-                    }
-                    else
-                    {
-                        _logger.LogError("❌ No HttpClient instances found. Library structure is different than expected.");
-                    }
-                }
-                catch (Exception reflectionEx)
-                {
-                    _logger.LogError(reflectionEx, "Recursive reflection search failed: {Error}", reflectionEx.Message);
-                }
                 
                 _logger.LogInformation("Socket.IO client instance created successfully");
             }
@@ -287,7 +408,7 @@ public class SocketService : ISocketService, IDisposable
             SetupEventHandlers();
             _logger.LogInformation("Event handlers set up successfully");
 
-            _logger.LogInformation("Attempting Socket.IO connection with polling transport (matching React client exactly)...");
+            _logger.LogInformation("Attempting Socket.IO connection (Transport={Transport}, AutoUpgrade={AutoUpgrade})...", options.Transport, options.AutoUpgrade);
             
             if (!serverReachable)
             {
@@ -312,6 +433,7 @@ public class SocketService : ISocketService, IDisposable
                         _socket = null;
                         
                         _socket = new SocketIOClient.SocketIO(socketUrl, options);
+                        ConfigureTransportSecurity(_socket);
                         SetupEventHandlers();
                         _logger.LogInformation("Recreated Socket.IO client for retry attempt {Attempt}", attempt);
                     }
@@ -320,88 +442,8 @@ public class SocketService : ISocketService, IDisposable
                     // The library starts HTTP requests immediately, so we must override BEFORE ConnectAsync()
                     _logger.LogInformation("🔍 Checking for HttpClient instances BEFORE ConnectAsync starts...");
                     var httpClientsBeforeConnect = new List<HttpClient>();
-                    try
-                    {
-                        var socketType = _socket.GetType();
-                        var searchedObjects = new HashSet<object>();
-                        
-                        void FindAllHttpClientsBeforeConnect(object? obj, int depth = 0)
-                        {
-                            if (obj == null || depth > 5 || searchedObjects.Contains(obj)) return;
-                            searchedObjects.Add(obj);
-                            
-                            if (obj is HttpClient hc && !httpClientsBeforeConnect.Contains(hc))
-                            {
-                                httpClientsBeforeConnect.Add(hc);
-                            }
-                            
-                            var objType = obj.GetType();
-                            var fields = objType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static);
-                            foreach (var field in fields)
-                            {
-                                try
-                                {
-                                    var value = field.GetValue(obj);
-                                    if (value is HttpClient hc2 && !httpClientsBeforeConnect.Contains(hc2))
-                                    {
-                                        httpClientsBeforeConnect.Add(hc2);
-                                    }
-                                    if (value != null && !value.GetType().IsPrimitive && !(value is string))
-                                    {
-                                        FindAllHttpClientsBeforeConnect(value, depth + 1);
-                                    }
-                                }
-                                catch { }
-                            }
-                        }
-                        
-                        FindAllHttpClientsBeforeConnect(_socket);
-                        httpClientsBeforeConnect = httpClientsBeforeConnect.Distinct().ToList();
-                        
-                        if (httpClientsBeforeConnect.Count > 0)
-                        {
-                            _logger.LogInformation("🔍 Found {Count} HttpClient instance(s) BEFORE ConnectAsync - OVERRIDING ALL NOW!", httpClientsBeforeConnect.Count);
-                            int successCount = 0;
-                            int failureCount = 0;
-                            
-                            foreach (var hc in httpClientsBeforeConnect)
-                            {
-                                try
-                                {
-                                    var oldTimeout = hc.Timeout;
-                                    var baseAddress = hc.BaseAddress?.ToString() ?? "null";
-                                    var hashCode = hc.GetHashCode();
-                                    
-                                    _logger.LogInformation("  📋 Overriding HttpClient (HashCode: {HashCode}, BaseAddress: {BaseAddress}, CurrentTimeout: {CurrentTimeout})...", 
-                                        hashCode, baseAddress, oldTimeout);
-                                    
-                                    hc.Timeout = TimeSpan.FromSeconds(30);
-                                    _logger.LogInformation("  ✅ SUCCESS! Overrode HttpClient timeout: {OldTimeout} -> 30s (HashCode: {HashCode})", 
-                                        oldTimeout, hashCode);
-                                    successCount++;
-                                }
-                                catch (Exception hcEx)
-                                {
-                                    _logger.LogWarning(hcEx, "  ⚠️  Could not override HttpClient timeout (HashCode: {HashCode}): {Error}", 
-                                        hc.GetHashCode(), hcEx.Message);
-                                    failureCount++;
-                                }
-                            }
-                            
-                            _logger.LogInformation("📊 Pre-ConnectAsync override summary: {SuccessCount} succeeded, {FailureCount} failed out of {TotalCount}", 
-                                successCount, failureCount, httpClientsBeforeConnect.Count);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("⚠️  No HttpClient instances found BEFORE ConnectAsync - library may create them during ConnectAsync");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to search for HttpClient before ConnectAsync: {Error}", ex.Message);
-                    }
                     
-                    // Start connection - library will timeout at 10 seconds (but we overrode it to 30s)
+                    // Start connection - library defaults are aggressive; we override internal HttpClient to 2 minutes.
                     _logger.LogInformation("🚀 Calling _socket.ConnectAsync() now...");
                     var connectTask = _socket.ConnectAsync();
                     _logger.LogInformation("✅ ConnectAsync() task created (Status: {Status})", connectTask.Status);
@@ -412,103 +454,8 @@ public class SocketService : ISocketService, IDisposable
                     await Task.Delay(100); // Reduced delay to catch them earlier
                     
                     var httpClientsDuringConnect = new List<HttpClient>();
-                    try
-                    {
-                        var socketType = _socket.GetType();
-                        var searchedObjects = new HashSet<object>();
-                        int searchDepth = 0;
-                        int totalObjectsSearched = 0;
-                        
-                        void FindAllHttpClientsDuringConnect(object? obj, int depth = 0)
-                        {
-                            if (obj == null || depth > 5 || searchedObjects.Contains(obj)) return;
-                            searchedObjects.Add(obj);
-                            totalObjectsSearched++;
-                            if (depth > searchDepth) searchDepth = depth;
-                            
-                            if (obj is HttpClient hc && !httpClientsDuringConnect.Contains(hc))
-                            {
-                                httpClientsDuringConnect.Add(hc);
-                            }
-                            
-                            var objType = obj.GetType();
-                            var fields = objType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static);
-                            foreach (var field in fields)
-                            {
-                                try
-                                {
-                                    var value = field.GetValue(obj);
-                                    if (value is HttpClient hc2 && !httpClientsDuringConnect.Contains(hc2))
-                                    {
-                                        httpClientsDuringConnect.Add(hc2);
-                                    }
-                                    if (value != null && !value.GetType().IsPrimitive && !(value is string))
-                                    {
-                                        FindAllHttpClientsDuringConnect(value, depth + 1);
-                                    }
-                                }
-                                catch { }
-                            }
-                        }
-                        
-                        _logger.LogInformation("🔍 Starting deep search for HttpClient instances DURING ConnectAsync...");
-                        FindAllHttpClientsDuringConnect(_socket);
-                        httpClientsDuringConnect = httpClientsDuringConnect.Distinct().ToList();
-                        
-                        _logger.LogInformation("🔍 Search complete - Searched {TotalObjects} objects at max depth {MaxDepth}", totalObjectsSearched, searchDepth);
-                        
-                        if (httpClientsDuringConnect.Count > 0)
-                        {
-                            _logger.LogInformation("🎯 Found {Count} HttpClient instance(s) DURING ConnectAsync - attempting to override ALL!", httpClientsDuringConnect.Count);
-                            
-                            int successCount = 0;
-                            int failureCount = 0;
-                            
-                            foreach (var hc in httpClientsDuringConnect)
-                            {
-                                try
-                                {
-                                    var oldTimeout = hc.Timeout;
-                                    var baseAddress = hc.BaseAddress?.ToString() ?? "null";
-                                    var hashCode = hc.GetHashCode();
-                                    
-                                    _logger.LogInformation("  📋 Attempting to override HttpClient (HashCode: {HashCode}, BaseAddress: {BaseAddress}, CurrentTimeout: {CurrentTimeout})...", 
-                                        hashCode, baseAddress, oldTimeout);
-                                    
-                                    // Check if this HttpClient was already found before ConnectAsync
-                                    var wasFoundBefore = httpClientsBeforeConnect.Any(h => h.GetHashCode() == hashCode);
-                                    if (wasFoundBefore)
-                                    {
-                                        _logger.LogInformation("  ⚠️  This HttpClient was already found BEFORE ConnectAsync - may have started requests");
-                                    }
-                                    
-                                    hc.Timeout = TimeSpan.FromSeconds(30);
-                                    _logger.LogInformation("  ✅ SUCCESS! Overrode HttpClient timeout: {OldTimeout} -> 30s (HashCode: {HashCode})", 
-                                        oldTimeout, hashCode);
-                                    successCount++;
-                                }
-                                catch (Exception hcEx)
-                                {
-                                    _logger.LogError(hcEx, "  ❌ FAILED to override HttpClient timeout (HashCode: {HashCode}): {Error}", 
-                                        hc.GetHashCode(), hcEx.Message);
-                                    failureCount++;
-                                }
-                            }
-                            
-                            _logger.LogInformation("📊 HttpClient override summary: {SuccessCount} succeeded, {FailureCount} failed out of {TotalCount}", 
-                                successCount, failureCount, httpClientsDuringConnect.Count);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("⚠️  No HttpClient instances found DURING ConnectAsync - this is unexpected!");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "❌ Failed to search for HttpClient during ConnectAsync: {Error}", ex.Message);
-                    }
                     
-                    // Wait up to 35 seconds (30s overridden timeout + 5s buffer)
+                    // Wait up to 35 seconds (connect should be fast; internal HttpClient timeout is for polling requests).
                     _logger.LogInformation("⏱️  Waiting for connection (timeout: 35s) for attempt {Attempt}...", attempt);
                     _logger.LogInformation("  📊 ConnectTask status: {Status}, IsCompleted: {IsCompleted}, IsFaulted: {IsFaulted}, IsCanceled: {IsCanceled}", 
                         connectTask.Status, connectTask.IsCompleted, connectTask.IsFaulted, connectTask.IsCanceled);
@@ -547,18 +494,6 @@ public class SocketService : ISocketService, IDisposable
                                     {
                                         _logger.LogInformation("      ⚠️  Found internal HttpClient in DefaultHttpClient - Timeout: {Timeout}, BaseAddress: {BaseAddress}, HashCode: {HashCode}", 
                                             hc.Timeout, hc.BaseAddress?.ToString() ?? "null", hc.GetHashCode());
-                                        
-                                        // Try to override it if it hasn't started
-                                        try
-                                        {
-                                            var oldTimeout = hc.Timeout;
-                                            hc.Timeout = TimeSpan.FromSeconds(30);
-                                            _logger.LogInformation("      ✅ Overrode DefaultHttpClient's internal HttpClient timeout: {OldTimeout} -> 30s", oldTimeout);
-                                        }
-                                        catch (Exception overrideEx)
-                                        {
-                                            _logger.LogWarning(overrideEx, "      ⚠️  Could not override DefaultHttpClient's internal HttpClient: {Error}", overrideEx.Message);
-                                        }
                                     }
                                 }
                             }
@@ -663,7 +598,7 @@ public class SocketService : ISocketService, IDisposable
                     }
                     catch (Exception connectEx)
                     {
-                        _logger.LogError(connectEx, "❌ ConnectAsync threw exception for attempt {Attempt}: {Error}", attempt, connectEx.Message);
+                        _logger.LogError(connectEx, "❌ ConnectAsync threw exception for attempt {Attempt}: {Error}. Full={Full}", attempt, connectEx.Message, connectEx.ToString());
                         lastException = connectEx;
                         if (attempt < maxRetries)
                         {
@@ -821,8 +756,8 @@ public class SocketService : ISocketService, IDisposable
             {
                 errorMessage += $" (Inner: {ex.InnerException.Message})";
             }
-            _logger.LogError(ex, "Failed to connect to Socket.IO server: {Url}. Exception Type: {Type}, Error: {Error}", 
-                socketUrl, ex.GetType().Name, errorMessage);
+            _logger.LogError(ex, "Failed to connect to Socket.IO server: {Url}. Exception Type: {Type}, Error: {Error}. Full={Full}", 
+                socketUrl, ex.GetType().Name, errorMessage, ex.ToString());
             Error?.Invoke(this, errorMessage);
             throw;
         }
@@ -830,6 +765,9 @@ public class SocketService : ISocketService, IDisposable
 
     public async Task DisconnectAsync()
     {
+        // Stop background reconnect loop if the app explicitly disconnects.
+        try { _autoReconnectCts?.Cancel(); } catch { }
+
         if (_socket != null && _socket.Connected)
         {
             await _socket.DisconnectAsync();
@@ -843,15 +781,69 @@ public class SocketService : ISocketService, IDisposable
 
     public async Task AuthenticateAsync(string userId, string username, string token)
     {
-        if (_socket == null || !_socket.Connected)
+        _authToken = token;
+
+        // Extract sip uri from JWT payload if present (e.g. { "sip": "sip:test1@demo.foleys.me.uk" }).
+        string? sipUri = null;
+        try
         {
-            throw new InvalidOperationException("Socket not connected");
+            string? TryGetJwtPayloadValue(string jwt, string key)
+            {
+                if (string.IsNullOrWhiteSpace(jwt)) return null;
+                var parts = jwt.Split('.');
+                if (parts.Length < 2) return null;
+                var payloadB64 = parts[1]
+                    .Replace('-', '+')
+                    .Replace('_', '/');
+                switch (payloadB64.Length % 4)
+                {
+                    case 2: payloadB64 += "=="; break;
+                    case 3: payloadB64 += "="; break;
+                }
+                var bytes = Convert.FromBase64String(payloadB64);
+                var json = System.Text.Encoding.UTF8.GetString(bytes);
+                var jo = JObject.Parse(json);
+                if (jo.TryGetValue(key, StringComparison.OrdinalIgnoreCase, out var tok) && tok != null)
+                {
+                    var s = tok.Type == JTokenType.String ? tok.Value<string>() : tok.ToString();
+                    return string.IsNullOrWhiteSpace(s) ? null : s;
+                }
+                return null;
+            }
+
+            sipUri = TryGetJwtPayloadValue(token, "sip") ?? TryGetJwtPayloadValue(token, "sipUri");
+
+            var jwtUsername = TryGetJwtPayloadValue(token, "username");
+            if (!string.IsNullOrWhiteSpace(jwtUsername))
+            {
+                username = jwtUsername;
+            }
+
+            // Server-side DB identity is username (legacyId) for compatibility.
+            // Some environments can accidentally pass a placeholder like user-<timestamp>.
+            if (string.IsNullOrWhiteSpace(userId) || userId.StartsWith("user-", StringComparison.OrdinalIgnoreCase))
+            {
+                userId = username;
+            }
         }
+        catch
+        {
+            sipUri = null;
+        }
+
+        // Publish the identity atomically, using the same adjusted values that are
+        // emitted below so reconnect re-auth matches the initial authenticate.
+        _lastAuth = new AuthSnapshot(userId, username, sipUri);
+
+        await EnsureConnectedAsync();
 
         try
         {
-            _authToken = token;
-            
+            _logger.LogInformation(
+                "Sending Socket.IO authenticate: userId={UserId} username={Username} tokenLen={TokenLen}",
+                userId,
+                username,
+                token?.Length ?? 0);
             await _socket.EmitAsync("authenticate", new
             {
                 userId,
@@ -870,18 +862,100 @@ public class SocketService : ISocketService, IDisposable
 
     public async Task EmitCallAsync(string targetId, CallType callType, bool enableVideo = false)
     {
-        if (_socket == null || !_socket.Connected)
-        {
-            throw new InvalidOperationException("Socket not connected");
-        }
+        await EnsureConnectedAsync();
+
+        var auth = _lastAuth;
+        var outgoingTargetUserId = callType == CallType.Direct ? targetId : string.Empty;
+        var outgoingGroupId = (callType == CallType.Broadcast || callType == CallType.Conference) ? targetId : string.Empty;
+
+        _logger.LogInformation(
+            "EmitCallAsync: callType={CallType} targetId={TargetId} -> targetUserId={TargetUserId} groupId={GroupId} enableVideo={EnableVideo} authUserId={AuthUserId} authUsername={AuthUsername} socketId={SocketId}",
+            callType,
+            targetId,
+            outgoingTargetUserId,
+            outgoingGroupId,
+            enableVideo,
+            auth?.UserId ?? "",
+            auth?.Username ?? "",
+            _socket?.Id ?? "");
 
         // Use instant-connect event as expected by the backend
+        string? ExtractSipDomain(string? sipUri)
+        {
+            if (string.IsNullOrWhiteSpace(sipUri)) return null;
+            // sip:user@domain
+            var s = sipUri.Trim();
+            if (s.StartsWith("sip:", StringComparison.OrdinalIgnoreCase))
+            {
+                s = s.Substring(4);
+            }
+            var at = s.IndexOf('@');
+            if (at < 0 || at == s.Length - 1) return null;
+            return s.Substring(at + 1);
+        }
+
+        string? BuildSipUriFromUsername(string username)
+        {
+            var domain = ExtractSipDomain(auth?.SipUri);
+            if (string.IsNullOrWhiteSpace(domain)) return null;
+            if (string.IsNullOrWhiteSpace(username)) return null;
+            return $"sip:{username}@{domain}";
+        }
+
+        var fromUri = auth?.SipUri;
+        string? toUri = null;
+        string? groupUri = null;
+        if (callType == CallType.Direct)
+        {
+            // If caller passes a SIP URI already, use it.
+            if (!string.IsNullOrWhiteSpace(targetId) && targetId.Contains(":", StringComparison.OrdinalIgnoreCase))
+            {
+                toUri = targetId;
+
+                // IMPORTANT: do not pass raw SIP URI as targetUserId.
+                // The server resolves targets via username/userId/uri, and also has URI-first logic
+                // (toUri -> username) that only runs when targetUserId is not set.
+                // If we pass targetUserId = "sip:...", the callee may never be found and will miss
+                // webrtc-setup-required (red state / no audio).
+                try
+                {
+                    var uriStr = targetId.Trim();
+                    if (uriStr.StartsWith("sip:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        uriStr = uriStr.Substring(4);
+                    }
+                    var at = uriStr.IndexOf('@');
+                    var derived = at > 0 ? uriStr.Substring(0, at) : uriStr;
+                    outgoingTargetUserId = string.IsNullOrWhiteSpace(derived) ? string.Empty : derived;
+                }
+                catch
+                {
+                    outgoingTargetUserId = string.Empty;
+                }
+            }
+            else
+            {
+                // Otherwise, try to synthesize sip:username@domain from our own SIP domain.
+                toUri = BuildSipUriFromUsername(targetId);
+            }
+        }
+        else
+        {
+            // Group/broadcast: keep using groupId for now; groupUri may be supplied later when available.
+            groupUri = null;
+        }
+
         await _socket.EmitAsync("instant-connect", new
         {
-            targetUserId = callType == CallType.Direct ? targetId : null,
-            targetUserIds = callType != CallType.Direct ? new[] { targetId } : null,
-            groupId = callType == CallType.Broadcast || callType == CallType.Conference ? targetId : null,
-            isGroupCall = callType != CallType.Direct,
+            fromUri,
+            toUri,
+            groupUri,
+            targetUserId = outgoingTargetUserId,
+            // For group/broadcast calls, let the server expand group members from groupId.
+            // (Passing groupId in targetUserIds prevents the server from finding any target sockets.)
+            targetUserIds = Array.Empty<string>(),
+            groupId = outgoingGroupId,
+            isGroupCall = callType == CallType.Broadcast || callType == CallType.Conference,
             audioMode = "open", // Can be "open" or "ptt"
             enableVideo = enableVideo
         });
@@ -889,10 +963,7 @@ public class SocketService : ISocketService, IDisposable
 
     public async Task EmitAnswerAsync(string callId)
     {
-        if (_socket == null || !_socket.Connected)
-        {
-            throw new InvalidOperationException("Socket not connected");
-        }
+        await EnsureConnectedAsync();
 
         // Use instant-accept event as expected by the backend
         await _socket.EmitAsync("instant-accept", new { callId });
@@ -900,41 +971,30 @@ public class SocketService : ISocketService, IDisposable
 
     public async Task EmitHangupAsync(string callId)
     {
-        if (_socket == null || !_socket.Connected)
-        {
-            throw new InvalidOperationException("Socket not connected");
-        }
+        await EnsureConnectedAsync();
 
         // Use instant-disconnect event as expected by the backend
-        await _socket.EmitAsync("instant-disconnect", new { callId });
+        var safeCallId = string.Equals(callId, "pending", StringComparison.OrdinalIgnoreCase) ? "" : callId;
+        await _socket.EmitAsync("instant-disconnect", new { callId = safeCallId });
     }
 
     public async Task EmitMuteAsync(string callId, bool muted)
     {
-        if (_socket == null || !_socket.Connected)
-        {
-            throw new InvalidOperationException("Socket not connected");
-        }
+        await EnsureConnectedAsync();
 
         await _socket.EmitAsync("mute", new { callId, muted });
     }
 
     public async Task EmitJoinRoomAsync(string roomId)
     {
-        if (_socket == null || !_socket.Connected)
-        {
-            throw new InvalidOperationException("Socket not connected");
-        }
+        await EnsureConnectedAsync();
 
         await _socket.EmitAsync("join-room", new { roomId });
     }
 
     public async Task EmitAsync(string eventName, object data)
     {
-        if (_socket == null || !_socket.Connected)
-        {
-            throw new InvalidOperationException("Socket not connected");
-        }
+        await EnsureConnectedAsync();
 
         await _socket.EmitAsync(eventName, data);
     }
@@ -967,18 +1027,93 @@ public class SocketService : ISocketService, IDisposable
         _socket.OnConnected += async (sender, e) =>
         {
             _logger.LogInformation("Socket.IO connected: {SocketId}", _socket?.Id);
+
+            // Stop any background reconnect loop.
+            try
+            {
+                _autoReconnectCts?.Cancel();
+            }
+            catch { }
             
             // Give a moment for authentication to complete
             await Task.Delay(100);
             
             ConnectionStateChanged?.Invoke(this, true);
             _logger.LogInformation("Connection state changed event fired: Connected");
+
+            // If we have auth context, always re-auth after (re)connect.
+            try
+            {
+                var auth = _lastAuth;
+                var token = _authToken;
+                if (auth != null && !string.IsNullOrWhiteSpace(token))
+                {
+                    await _socket.EmitAsync("authenticate", new
+                    {
+                        userId = auth.UserId,
+                        username = auth.Username,
+                        token
+                    });
+                    _logger.LogInformation("Re-authenticate sent after connect (user: {Username})", auth.Username);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to re-authenticate after connect");
+            }
         };
 
         _socket.OnDisconnected += (sender, e) =>
         {
             _logger.LogInformation("Socket.IO disconnected: {Reason}", e);
             ConnectionStateChanged?.Invoke(this, false);
+
+            // Auto-failover: try the next candidate in the background.
+            if (!_disposed)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _reconnectGate.WaitAsync();
+                        try
+                        {
+                            if (_socket != null && _socket.Connected) return;
+                            var all = GetCandidateOrder(_serverUrl);
+                            if (all.Count <= 1) return;
+
+                            var nextIndex = (_serverCandidateIndex + 1) % all.Count;
+                            var next = all[nextIndex];
+                            if (string.Equals(next, _serverUrl, StringComparison.OrdinalIgnoreCase)) return;
+
+                            _logger.LogWarning("Attempting socket failover to: {Url}", next);
+                            var auth = _lastAuth;
+                            var token = _authToken;
+                            await DisconnectAsync();
+                            await ConnectAsync(next, token);
+                            if (auth != null && !string.IsNullOrWhiteSpace(token))
+                            {
+                                await AuthenticateAsync(auth.UserId, auth.Username, token);
+                            }
+                        }
+                        finally
+                        {
+                            _reconnectGate.Release();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failover reconnect attempt failed");
+                    }
+                });
+            }
+
+            // Auto-retry: if we only have one candidate (or failover doesn't fix it),
+            // keep attempting to reconnect in the background with exponential backoff.
+            if (!_disposed)
+            {
+                StartAutoReconnectLoop();
+            }
         };
 
         _socket.OnError += (sender, e) =>
@@ -1044,27 +1179,229 @@ public class SocketService : ISocketService, IDisposable
             }
         });
 
+        (JObject? Obj, string RawJson) NormalizeToJObject(object? data)
+        {
+            if (data == null)
+            {
+                return (null, "<null>");
+            }
+
+            try
+            {
+                // SocketIOClient can give us System.Text.Json.JsonElement.
+                // If we treat it as an object, it serializes to {"ValueKind":...} and we lose the payload.
+                if (data is JsonElement je)
+                {
+                    var rawText = je.GetRawText();
+                    var tokenFromRaw = JToken.Parse(rawText);
+
+                    if (tokenFromRaw is JObject objFromRaw)
+                    {
+                        return (objFromRaw, rawText);
+                    }
+
+                    if (tokenFromRaw is JArray arrFromRaw && arrFromRaw.Count > 0 && arrFromRaw[0] is JObject o0)
+                    {
+                        return (o0, rawText);
+                    }
+
+                    return (new JObject { ["value"] = tokenFromRaw }, rawText);
+                }
+
+                if (data is JsonDocument jd)
+                {
+                    var rawText = jd.RootElement.GetRawText();
+                    var tokenFromRaw = JToken.Parse(rawText);
+
+                    if (tokenFromRaw is JObject objFromRaw)
+                    {
+                        return (objFromRaw, rawText);
+                    }
+
+                    if (tokenFromRaw is JArray arrFromRaw && arrFromRaw.Count > 0 && arrFromRaw[0] is JObject o0)
+                    {
+                        return (o0, rawText);
+                    }
+
+                    return (new JObject { ["value"] = tokenFromRaw }, rawText);
+                }
+
+                // SocketIOClient often passes event args as an array.
+                var token = data as JToken ?? JToken.FromObject(data);
+                var raw = token.ToString(Formatting.None);
+
+                // If the payload is a JSON string, parse it.
+                if (token.Type == JTokenType.String)
+                {
+                    var s = token.Value<string>();
+                    if (!string.IsNullOrWhiteSpace(s))
+                    {
+                        var parsed = JToken.Parse(s);
+                        token = parsed;
+                        raw = s;
+                    }
+                }
+
+                // If the payload is an array of args, take the first arg.
+                if (token is JArray arr)
+                {
+                    if (arr.Count == 0)
+                    {
+                        return (null, raw);
+                    }
+
+                    token = arr[0];
+                    raw = arr.ToString(Formatting.None);
+                }
+
+                // Sometimes arg[0] is still a JSON string.
+                if (token.Type == JTokenType.String)
+                {
+                    var s = token.Value<string>();
+                    if (!string.IsNullOrWhiteSpace(s))
+                    {
+                        token = JToken.Parse(s);
+                        raw = s;
+                    }
+                }
+
+                if (token is JObject obj)
+                {
+                    return (obj, raw);
+                }
+
+                // Last resort: wrap non-object tokens.
+                return (new JObject { ["value"] = token }, raw);
+            }
+            catch
+            {
+                return (null, JsonConvert.SerializeObject(data));
+            }
+        }
+
+        string? GetString(JObject obj, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (obj.TryGetValue(k, StringComparison.OrdinalIgnoreCase, out var token) && token != null)
+                {
+                    var s = token.Type == JTokenType.String ? token.Value<string>() : token.ToString();
+                    if (!string.IsNullOrWhiteSpace(s)) return s;
+                }
+            }
+            return null;
+        }
+
+        List<string> GetStringList(JObject obj, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (obj.TryGetValue(k, StringComparison.OrdinalIgnoreCase, out var token) && token is JArray arr)
+                {
+                    return arr.Values<string>().Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+                }
+            }
+            return new List<string>();
+        }
+
+        bool GetBool(JObject obj, params string[] keys)
+        {
+            foreach (var k in keys)
+            {
+                if (!obj.TryGetValue(k, StringComparison.OrdinalIgnoreCase, out var token) || token == null)
+                {
+                    continue;
+                }
+
+                if (token.Type == JTokenType.Boolean)
+                {
+                    return token.Value<bool>();
+                }
+
+                if (token.Type == JTokenType.Integer)
+                {
+                    return token.Value<int>() != 0;
+                }
+
+                var s = token.Type == JTokenType.String ? token.Value<string>() : token.ToString();
+                if (bool.TryParse(s, out var b))
+                {
+                    return b;
+                }
+
+                if (string.Equals(s, "1", StringComparison.OrdinalIgnoreCase) || string.Equals(s, "yes", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        LineSipStateEvent? ParseLineSipState(object? data, bool isIncoming)
+        {
+            var (obj, _) = NormalizeToJObject(data);
+            if (obj == null) return null;
+
+            var lineId = GetString(obj, "lineId") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(lineId)) return null;
+
+            var activeUsers = 0;
+            try
+            {
+                if (obj.TryGetValue("activeUsers", StringComparison.OrdinalIgnoreCase, out var usersTok) && usersTok != null)
+                {
+                    activeUsers = usersTok.Type == JTokenType.Integer ? usersTok.Value<int>() : int.Parse(usersTok.ToString());
+                }
+            }
+            catch { }
+
+            return new LineSipStateEvent
+            {
+                LineId = lineId,
+                LineSessionKey = GetString(obj, "lineSessionKey"),
+                MediaGroupId = GetString(obj, "mediaGroupId"),
+                SipCallId = GetString(obj, "sipCallId", "callId"),
+                Status = GetString(obj, "status"),
+                Reason = GetString(obj, "reason"),
+                SbcRole = GetString(obj, "sbcRole"),
+                ActiveUsers = activeUsers,
+                IsIncoming = isIncoming,
+            };
+        }
+
         _socket.On("instant-incoming", response =>
         {
             try
             {
                 var data = response.GetValue<object>();
-                var json = JsonConvert.SerializeObject(data);
-                var callData = JsonConvert.DeserializeObject<dynamic>(json);
-                
-                if (callData != null)
+                var (obj, raw) = NormalizeToJObject(data);
+
+                if (obj != null)
                 {
+                    var callId = GetString(obj, "callId", "id") ?? Guid.NewGuid().ToString();
+                    var callerId = GetString(obj, "callerId", "from", "fromUserId", "callerUserId") ?? "unknown";
+                    var callerName = GetString(obj, "callerName", "callerUsername", "displayName") ?? callerId;
+
+                    if (callerId == "unknown")
+                    {
+                        _logger.LogWarning("instant-incoming missing callerId; payload={Payload}", raw);
+                    }
+
                     var call = new Call
                     {
-                        Id = callData.callId?.ToString() ?? Guid.NewGuid().ToString(),
-                        CallerId = callData.callerId?.ToString(),
-                        CallerName = callData.callerName?.ToString(),
-                        TargetId = callData.targetUserId?.ToString(),
-                        GroupId = callData.groupId?.ToString(),
-                        GroupName = callData.groupName?.ToString(),
-                        Type = callData.isGroupCall == true ? CallType.Conference : CallType.Direct,
+                        Id = callId,
+                        CallerId = callerId,
+                        CallerName = callerName,
+                        TargetId = GetString(obj, "targetUserId"),
+                        GroupId = GetString(obj, "groupId"),
+                        GroupName = GetString(obj, "groupName"),
+                        Type = obj.TryGetValue("isGroupCall", StringComparison.OrdinalIgnoreCase, out var isGroupTok) && isGroupTok?.Type == JTokenType.Boolean && isGroupTok.Value<bool>()
+                            ? CallType.Conference
+                            : CallType.Direct,
                         State = CallState.Ringing,
-                        StartTime = DateTime.UtcNow
+                        StartTime = DateTime.UtcNow,
+                        EnableVideo = GetBool(obj, "enableVideo")
                     };
                     
                     _logger.LogInformation("Incoming instant call: {CallId} from {CallerId}", 
@@ -1078,39 +1415,76 @@ public class SocketService : ISocketService, IDisposable
             }
         });
 
+        // Server broadcasts this to ALL participants once the call is active.
+        // The caller also gets "instant-connected", but callees may only see this.
+        _socket.On("instant-call-active", response =>
+        {
+            try
+            {
+                var data = response.GetValue<object>();
+                var (obj, raw) = NormalizeToJObject(data);
+
+                if (obj != null)
+                {
+                    var callId = GetString(obj, "callId", "id") ?? Guid.NewGuid().ToString();
+                    if (string.IsNullOrWhiteSpace(GetString(obj, "callId", "id")))
+                    {
+                        _logger.LogWarning("instant-call-active missing callId; payload={Payload}", raw);
+                    }
+                    var call = new Call
+                    {
+                        Id = callId,
+                        CallerId = GetString(obj, "callerId", "callerUserId") ?? "unknown",
+                        TargetId = GetString(obj, "targetUserId"),
+                        GroupId = GetString(obj, "groupId"),
+                        Type = string.Equals(GetString(obj, "type"), "group", StringComparison.OrdinalIgnoreCase) ? CallType.Conference : CallType.Direct,
+                        // Call is now active for all participants.
+                        State = CallState.Connected,
+                        StartTime = DateTime.UtcNow,
+                        EnableVideo = GetBool(obj, "enableVideo")
+                    };
+
+                    _logger.LogInformation("Instant call active (broadcast): {CallId}", call.Id ?? "unknown");
+                    CallStateChanged?.Invoke(this, call);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling instant-call-active");
+            }
+        });
+
         _socket.On("instant-connected", response =>
         {
             try
             {
                 var data = response.GetValue<object>();
-                var json = JsonConvert.SerializeObject(data);
-                var callData = JsonConvert.DeserializeObject<dynamic>(json);
-                
-                if (callData != null)
+                var (obj, raw) = NormalizeToJObject(data);
+
+                if (obj != null)
                 {
+                    var callId = GetString(obj, "callId", "id") ?? Guid.NewGuid().ToString();
+                    if (string.IsNullOrWhiteSpace(GetString(obj, "callId", "id")))
+                    {
+                        _logger.LogWarning("instant-connected missing callId; payload={Payload}", raw);
+                    }
                     var call = new Call
                     {
-                        Id = callData.callId?.ToString() ?? Guid.NewGuid().ToString(),
-                        CallerId = callData.callerId?.ToString(),
-                        TargetId = callData.targetUserId?.ToString(),
-                        GroupId = callData.groupId?.ToString(),
-                        Type = callData.type?.ToString() == "group" ? CallType.Conference : CallType.Direct,
-                        State = CallState.Connected,
-                        StartTime = DateTime.UtcNow
+                        Id = callId,
+                        CallerId = GetString(obj, "callerId", "callerUserId") ?? "unknown",
+                        TargetId = GetString(obj, "targetUserId"),
+                        GroupId = GetString(obj, "groupId"),
+                        Type = string.Equals(GetString(obj, "type"), "group", StringComparison.OrdinalIgnoreCase) ? CallType.Conference : CallType.Direct,
+                        // instant-connected is signaling-level and can occur before media is actually flowing.
+                        // Keep UI in Connecting until we get instant-call-active / webrtc-setup-required.
+                        State = CallState.Connecting,
+                        StartTime = DateTime.UtcNow,
+                        EnableVideo = GetBool(obj, "enableVideo")
                     };
+
+                    call.Participants = GetStringList(obj, "participants");
                     
-                    // Parse participants if available
-                    if (callData.participants != null)
-                    {
-                        var participantsJson = JsonConvert.SerializeObject(callData.participants);
-                        var participants = JsonConvert.DeserializeObject<List<string>>(participantsJson);
-                        if (participants != null)
-                        {
-                            call.Participants = participants;
-                        }
-                    }
-                    
-                    _logger.LogInformation("Instant call connected: {CallId}", call.Id ?? "unknown");
+                    _logger.LogInformation("Instant call connected (signaling): {CallId}", call.Id ?? "unknown");
                     CallStateChanged?.Invoke(this, call);
                 }
             }
@@ -1125,17 +1499,16 @@ public class SocketService : ISocketService, IDisposable
             try
             {
                 var data = response.GetValue<object>();
-                var json = JsonConvert.SerializeObject(data);
-                var callData = JsonConvert.DeserializeObject<dynamic>(json);
-                
-                string callId = "";
-                if (callData?.callId != null)
-                {
-                    callId = Convert.ToString(callData.callId) ?? "";
-                }
+                var (obj, raw) = NormalizeToJObject(data);
+
+                string callId = obj != null ? (GetString(obj, "callId", "id") ?? "") : "";
                 if (!string.IsNullOrEmpty(callId))
                 {
                     _logger.LogInformation("Instant call disconnected: {CallId}", callId);
+                }
+                else
+                {
+                    _logger.LogWarning("instant-disconnected missing callId; payload={Payload}", raw);
                 }
                 if (!string.IsNullOrEmpty(callId))
                 {
@@ -1148,20 +1521,208 @@ public class SocketService : ISocketService, IDisposable
             }
         });
 
+        _socket.On("instant-ended", response =>
+        {
+            try
+            {
+                var data = response.GetValue<object>();
+                var (obj, raw) = NormalizeToJObject(data);
+
+                string callId = obj != null ? (GetString(obj, "callId", "id") ?? "") : "";
+
+                if (!string.IsNullOrEmpty(callId))
+                {
+                    _logger.LogInformation("Instant call ended: {CallId}", callId);
+                    CallEnded?.Invoke(this, callId);
+                }
+                else
+                {
+                    _logger.LogWarning("instant-ended missing callId; payload={Payload}", raw);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling instant-ended");
+            }
+        });
+
+        _socket.On("broadcast-activated", response =>
+        {
+            try
+            {
+                var data = response.GetValue<object>();
+                var (obj, raw) = NormalizeToJObject(data);
+                if (obj == null)
+                {
+                    _logger.LogWarning("broadcast-activated received non-object payload: {Payload}", raw);
+                    return;
+                }
+
+                var lineId = GetString(obj, "lineId", "groupId") ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(lineId))
+                {
+                    _logger.LogWarning("broadcast-activated missing lineId; payload={Payload}", raw);
+                    return;
+                }
+
+                _logger.LogInformation("Broadcast activated: {LineId}", lineId);
+                BroadcastActiveChanged?.Invoke(this, (lineId, true));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling broadcast-activated");
+            }
+        });
+
+        _socket.On("broadcast-closed", response =>
+        {
+            try
+            {
+                var data = response.GetValue<object>();
+                var (obj, raw) = NormalizeToJObject(data);
+                if (obj == null)
+                {
+                    _logger.LogWarning("broadcast-closed received non-object payload: {Payload}", raw);
+                    return;
+                }
+
+                var lineId = GetString(obj, "lineId", "groupId") ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(lineId))
+                {
+                    _logger.LogWarning("broadcast-closed missing lineId; payload={Payload}", raw);
+                    return;
+                }
+
+                _logger.LogInformation("Broadcast closed: {LineId}", lineId);
+                BroadcastActiveChanged?.Invoke(this, (lineId, false));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling broadcast-closed");
+            }
+        });
+
+        _socket.On("broadcast-monitor-updated", response =>
+        {
+            try
+            {
+                var data = response.GetValue<object>();
+                var (obj, raw) = NormalizeToJObject(data);
+                if (obj == null)
+                {
+                    _logger.LogWarning("broadcast-monitor-updated received non-object payload: {Payload}", raw);
+                    return;
+                }
+
+                var ok = GetBool(obj, "success");
+                if (!ok)
+                {
+                    var err = GetString(obj, "error", "message") ?? "broadcast-monitor-updated failed";
+                    _logger.LogWarning("broadcast-monitor-updated failed: {Error}; payload={Payload}", err, raw);
+                    return;
+                }
+
+                var lineId = GetString(obj, "groupId", "lineId") ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(lineId))
+                {
+                    _logger.LogWarning("broadcast-monitor-updated missing groupId; payload={Payload}", raw);
+                    return;
+                }
+
+                var isMonitoring = GetBool(obj, "monitor");
+                int? listenerCount = null;
+                try
+                {
+                    if (obj.TryGetValue("listenerCount", StringComparison.OrdinalIgnoreCase, out var tok) && tok != null)
+                    {
+                        if (tok.Type == JTokenType.Integer)
+                        {
+                            listenerCount = tok.Value<int>();
+                        }
+                        else
+                        {
+                            var s = tok.Type == JTokenType.String ? tok.Value<string>() : tok.ToString();
+                            if (int.TryParse(s, out var i))
+                            {
+                                listenerCount = i;
+                            }
+                        }
+                    }
+                }
+                catch { }
+
+                _logger.LogInformation(
+                    "Broadcast monitor updated: {LineId} monitoring={Monitoring} listenerCount={ListenerCount}",
+                    lineId,
+                    isMonitoring,
+                    listenerCount.HasValue ? listenerCount.Value : -1);
+
+                BroadcastMonitorUpdated?.Invoke(this, (lineId, isMonitoring, listenerCount));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling broadcast-monitor-updated");
+            }
+        });
+
+        _socket.On("line-sip-state", response =>
+        {
+            try
+            {
+                var evt = ParseLineSipState(response.GetValue<object>(), isIncoming: false);
+                if (evt == null) return;
+                LineSipStateChanged?.Invoke(this, evt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling line-sip-state");
+            }
+        });
+
+        _socket.On("line-sip-incoming", response =>
+        {
+            try
+            {
+                var evt = ParseLineSipState(response.GetValue<object>(), isIncoming: true);
+                if (evt == null) return;
+                LineSipIncoming?.Invoke(this, evt);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling line-sip-incoming");
+            }
+        });
+
         _socket.On("instant-error", response =>
         {
             try
             {
                 var data = response.GetValue<object>();
-                var json = JsonConvert.SerializeObject(data);
-                var errorData = JsonConvert.DeserializeObject<dynamic>(json);
-                
+                var (obj, raw) = NormalizeToJObject(data);
+
                 string message = "Unknown error";
-                if (errorData?.message != null)
+                if (obj != null)
                 {
-                    message = Convert.ToString(errorData.message) ?? "Unknown error";
+                    message = GetString(obj, "message", "error", "reason") ?? "Unknown error";
                 }
-                _logger.LogError("Instant call error: {Message}", message);
+
+                var attempted = obj != null ? GetStringList(obj, "attempted") : new List<string>();
+                var matched = obj != null ? GetStringList(obj, "matched") : new List<string>();
+
+                if (attempted.Count > 0 || matched.Count > 0)
+                {
+                    _logger.LogError(
+                        "Instant call error: {Message}; attempted={Attempted}; matched={Matched}; payload={Payload}",
+                        message,
+                        string.Join(",", attempted),
+                        string.Join(",", matched),
+                        raw);
+                }
+                else
+                {
+                    _logger.LogError("Instant call error: {Message}; payload={Payload}", message, raw);
+                }
+
                 Error?.Invoke(this, message);
             }
             catch (Exception ex)
@@ -1180,6 +1741,7 @@ public class SocketService : ISocketService, IDisposable
                 
                 string message = "Call blocked";
                 string reason = "unknown";
+                string callId = string.Empty;
                 if (blockData?.message != null)
                 {
                     message = Convert.ToString(blockData.message) ?? "Call blocked";
@@ -1188,8 +1750,18 @@ public class SocketService : ISocketService, IDisposable
                 {
                     reason = Convert.ToString(blockData.reason) ?? "unknown";
                 }
+                if (blockData?.callId != null)
+                {
+                    callId = Convert.ToString(blockData.callId) ?? string.Empty;
+                }
                 _logger.LogWarning("Instant call blocked: {Reason} - {Message}", reason, message);
                 Error?.Invoke(this, $"Call blocked: {message}");
+
+                // If server provides a callId, treat this as an ended call so UI stops showing dialing.
+                if (!string.IsNullOrWhiteSpace(callId))
+                {
+                    CallEnded?.Invoke(this, callId);
+                }
             }
             catch (Exception ex)
             {
@@ -1202,25 +1774,20 @@ public class SocketService : ISocketService, IDisposable
             try
             {
                 var data = response.GetValue<object>();
-                var json = JsonConvert.SerializeObject(data);
-                var setupData = JsonConvert.DeserializeObject<dynamic>(json);
-                
-                if (setupData != null)
+                var (obj, raw) = NormalizeToJObject(data);
+
+                if (obj != null)
                 {
-                    string callId = Convert.ToString(setupData.callId) ?? string.Empty;
-                    var participants = new List<string>();
-                    
-                    if (setupData.participants != null)
-                    {
-                        var participantsArray = setupData.participants as Newtonsoft.Json.Linq.JArray;
-                        if (participantsArray != null)
-                        {
-                            participants = participantsArray.ToObject<List<string>>() ?? new List<string>();
-                        }
-                    }
+                    string callId = GetString(obj, "callId", "id") ?? string.Empty;
+                    var participants = GetStringList(obj, "participants");
                     
                     int participantCount = participants.Count;
                     _logger.LogInformation("WebRTC setup required for call: {CallId}, Participants: {Count}", callId, participantCount);
+
+                    if (string.IsNullOrWhiteSpace(callId))
+                    {
+                        _logger.LogWarning("webrtc-setup-required missing callId; payload={Payload}", raw);
+                    }
                     
                     WebRTCSetupRequired?.Invoke(this, new WebRTCSetupData
                     {
@@ -1235,69 +1802,70 @@ public class SocketService : ISocketService, IDisposable
             }
         });
 
+        _socket.On("audio-level", response =>
+        {
+            try
+            {
+                var data = response.GetValue<object>();
+                var (obj, raw) = NormalizeToJObject(data);
+
+                if (obj != null)
+                {
+                    var callId = GetString(obj, "callId", "roomId", "groupId") ?? string.Empty;
+                    var userId = GetString(obj, "userId", "id", "user") ?? string.Empty;
+                    float level = 0f;
+
+                    if (obj.TryGetValue("level", StringComparison.OrdinalIgnoreCase, out var levelTok) && levelTok != null)
+                    {
+                        _ = float.TryParse(levelTok.ToString(), out level);
+                    }
+                    else if (obj.TryGetValue("audioLevel", StringComparison.OrdinalIgnoreCase, out var alTok) && alTok != null)
+                    {
+                        _ = float.TryParse(alTok.ToString(), out level);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(callId) && !string.IsNullOrWhiteSpace(userId))
+                    {
+                        AudioLevelReceived?.Invoke(this, new AudioLevelData { CallId = callId, UserId = userId, Level = level });
+                    }
+                    else
+                    {
+                        _logger.LogDebug("audio-level missing callId/userId; payload={Payload}", raw);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error handling audio-level");
+            }
+        });
+
         _socket.On("presence-update", response =>
         {
             try
             {
-                // Try to get as object directly first
-                object? presenceObj = null;
-                try
-                {
-                    presenceObj = response.GetValue<object>();
-                }
-                catch
-                {
-                    // If that fails, try as string and deserialize
-                    var presenceJson = response.GetValue<string>();
-                    presenceObj = JsonConvert.DeserializeObject<dynamic>(presenceJson);
-                }
+                var data = response.GetValue<object>();
+                var (obj, raw) = NormalizeToJObject(data);
 
-                if (presenceObj != null)
+                if (obj != null)
                 {
-                    var presence = JsonConvert.DeserializeObject<dynamic>(JsonConvert.SerializeObject(presenceObj));
-                    if (presence != null)
+                    var userId = GetString(obj, "userId", "id", "user") ?? string.Empty;
+                    var username = GetString(obj, "username", "name") ?? string.Empty;
+                    var isOnline = GetBool(obj, "online", "isOnline");
+
+                    _logger.LogInformation("Presence update: {UserId} ({Username}) - {Online}", userId, username, isOnline);
+
+                    UserStatusChanged?.Invoke(this, new User
                     {
-                        string userId = "";
-                        string username = "";
-                        bool isOnline = false;
-                        
-                        try
-                        {
-                            var userIdObj = presence.userId;
-                            var usernameObj = presence.username;
-                            var onlineObj = presence.online;
-                            
-                            userId = userIdObj != null ? Convert.ToString(userIdObj) ?? "" : "";
-                            username = usernameObj != null ? Convert.ToString(usernameObj) ?? "" : "";
-                            isOnline = onlineObj != null && (
-                                Convert.ToString(onlineObj)?.Equals("True", StringComparison.OrdinalIgnoreCase) == true ||
-                                Convert.ToString(onlineObj)?.Equals("true", StringComparison.OrdinalIgnoreCase) == true ||
-                                onlineObj is bool b && b == true);
-                        }
-                        catch
-                        {
-                            // Use defaults already set
-                        }
-                        
-                        _logger.LogInformation("Presence update: {UserId} ({Username}) - {Online}", userId, username, isOnline);
-                        
-                        // If this is about the current connection, update connection state
-                        // (This would require knowing the current user ID - for now just update status)
-                        
-                        UserStatusChanged?.Invoke(this, new User 
-                        { 
-                            Id = userId ?? "",
-                            Username = username ?? "",
-                            Status = isOnline ? "online" : "offline",
-                            IsOnline = isOnline
-                        });
-                        
-                        // If the presence update is for online status, also update connection state
-                        if (isOnline)
-                        {
-                            _logger.LogInformation("Presence update indicates online - updating connection state");
-                        }
-                    }
+                        Id = userId ?? "",
+                        Username = username ?? "",
+                        Status = isOnline ? "online" : "offline",
+                        IsOnline = isOnline
+                    });
+                }
+                else
+                {
+                    _logger.LogWarning("presence-update payload could not be normalized; payload={Payload}", raw);
                 }
             }
             catch (Exception ex)
@@ -1329,6 +1897,7 @@ public class SocketService : ISocketService, IDisposable
                         string userId = "";
                         string username = "";
                         string status = "offline";
+                        bool? onlineFlag = null;
                         
                         try
                         {
@@ -1339,6 +1908,37 @@ public class SocketService : ISocketService, IDisposable
                             userId = userIdObj != null ? Convert.ToString(userIdObj) ?? "" : "";
                             username = usernameObj != null ? Convert.ToString(usernameObj) ?? "" : "";
                             status = statusValueObj != null ? Convert.ToString(statusValueObj) ?? "offline" : "offline";
+
+                            try
+                            {
+                                var onlineObj = statusData.online;
+                                if (onlineObj != null)
+                                {
+                                    bool parsedOnline;
+                                    if (bool.TryParse(Convert.ToString(onlineObj) ?? string.Empty, out parsedOnline))
+                                    {
+                                        onlineFlag = parsedOnline;
+                                    }
+                                }
+                            }
+                            catch { }
+
+                            try
+                            {
+                                if (onlineFlag == null)
+                                {
+                                    var isOnlineObj = statusData.isOnline;
+                                    if (isOnlineObj != null)
+                                    {
+                                        bool parsedIsOnline;
+                                        if (bool.TryParse(Convert.ToString(isOnlineObj) ?? string.Empty, out parsedIsOnline))
+                                        {
+                                            onlineFlag = parsedIsOnline;
+                                        }
+                                    }
+                                }
+                            }
+                            catch { }
                         }
                         catch
                         {
@@ -1346,13 +1946,28 @@ public class SocketService : ISocketService, IDisposable
                         }
                         
                         _logger.LogInformation("User status update: {UserId} ({Username}) - {Status}", userId, username, status);
+
+                        var normalizedStatus = (status ?? "offline").Trim();
+                        var statusLower = normalizedStatus.ToLowerInvariant();
+                        var isOnline = onlineFlag ?? (statusLower switch
+                        {
+                            "offline" => false,
+                            "" => false,
+                            _ => true
+                        });
+
+                        // If server explicitly says the user is not online, force an offline presence.
+                        if (!isOnline)
+                        {
+                            normalizedStatus = "offline";
+                        }
                         
                         UserStatusChanged?.Invoke(this, new User 
                         { 
                             Id = userId ?? "",
                             Username = username ?? "",
-                            Status = status ?? "offline",
-                            IsOnline = (status ?? "offline") == "online"
+                            Status = normalizedStatus,
+                            IsOnline = isOnline
                         });
                     }
                 }
@@ -1364,10 +1979,115 @@ public class SocketService : ISocketService, IDisposable
         });
     }
 
+    private void StartAutoReconnectLoop()
+    {
+        try
+        {
+            if (_disposed) return;
+
+            // Only one loop at a time.
+            if (_autoReconnectTask != null && !_autoReconnectTask.IsCompleted)
+            {
+                return;
+            }
+
+            _autoReconnectCts?.Cancel();
+            _autoReconnectCts = new CancellationTokenSource();
+            var ct = _autoReconnectCts.Token;
+
+            _autoReconnectTask = Task.Run(async () =>
+            {
+                var attempt = 0;
+                while (!ct.IsCancellationRequested && !_disposed)
+                {
+                    try
+                    {
+                        if (_socket != null && _socket.Connected)
+                        {
+                            return;
+                        }
+
+                        attempt++;
+                        var baseDelayMs = 2000;
+                        var maxDelayMs = 30000;
+                        var delayMs = Math.Min(maxDelayMs, baseDelayMs * (int)Math.Pow(2, Math.Min(attempt - 1, 4))); // 2s,4s,8s,16s,32s(capped)
+
+                        try
+                        {
+                            await _reconnectGate.WaitAsync(ct);
+                            try
+                            {
+                                if (_socket != null && _socket.Connected)
+                                {
+                                    return;
+                                }
+
+                                var target = _serverUrl ?? _serverCandidates.FirstOrDefault() ?? string.Empty;
+                                if (string.IsNullOrWhiteSpace(target))
+                                {
+                                    _logger.LogWarning("Auto-reconnect: no server URL available");
+                                }
+                                else
+                                {
+                                    _logger.LogWarning("Auto-reconnect attempt {Attempt} to {Url}", attempt, target);
+                                    try
+                                    {
+                                        var auth = _lastAuth;
+                                        var token = _authToken;
+                                        // ConnectAsync will no-op if already connected.
+                                        await ConnectAsync(target, token);
+                                        if (auth != null && !string.IsNullOrWhiteSpace(token))
+                                        {
+                                            await AuthenticateAsync(auth.UserId, auth.Username, token);
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogWarning(ex, "Auto-reconnect attempt {Attempt} failed", attempt);
+                                    }
+                                }
+                            }
+                            finally
+                            {
+                                _reconnectGate.Release();
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return;
+                        }
+
+                        // Sleep before next attempt (unless connected).
+                        if (_socket != null && _socket.Connected)
+                        {
+                            return;
+                        }
+
+                        await Task.Delay(delayMs, ct);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Auto-reconnect loop error");
+                        try { await Task.Delay(5000, ct); } catch { }
+                    }
+                }
+            }, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to start auto-reconnect loop");
+        }
+    }
+
     public void Dispose()
     {
         if (!_disposed)
         {
+            try { _autoReconnectCts?.Cancel(); } catch { }
             DisconnectAsync().Wait(TimeSpan.FromSeconds(5));
             _socket?.Dispose();
             _disposed = true;

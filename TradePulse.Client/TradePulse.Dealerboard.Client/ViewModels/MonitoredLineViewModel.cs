@@ -13,6 +13,10 @@ public sealed partial class MonitoredLineViewModel : ObservableObject
 
     public bool IsEmpty => string.IsNullOrWhiteSpace(LineId);
 
+    // Push-to-talk active on this monitored line (mic uplink live).
+    [ObservableProperty]
+    private bool _isTalking;
+
     public MonitoredLineViewModel(string lineId, string label, int buttonNumber, int pageNumber)
     {
         LineId = lineId;

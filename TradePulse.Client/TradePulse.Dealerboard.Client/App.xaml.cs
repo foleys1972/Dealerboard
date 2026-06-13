@@ -80,6 +80,9 @@ public partial class App : Application
             DispatcherUnhandledException += (sender, args) =>
             {
                 TryWriteStartupCrash($"DispatcherUnhandledException: {args.Exception}");
+                // Keep the turret alive: a non-fatal UI-thread exception (e.g. a stray
+                // tooltip/binding error) should be logged, not crash the whole client.
+                args.Handled = true;
             };
 
             AppDomain.CurrentDomain.UnhandledException += (sender, args) =>

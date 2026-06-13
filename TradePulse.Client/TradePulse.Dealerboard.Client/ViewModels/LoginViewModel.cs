@@ -61,7 +61,7 @@ public partial class LoginViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void TestConnection()
+    private async Task TestConnection()
     {
         if (string.IsNullOrWhiteSpace(ServerUrl))
         {
@@ -147,7 +147,7 @@ public partial class LoginViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void Login()
+    private async Task Login()
     {
         if (string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(Password))
         {

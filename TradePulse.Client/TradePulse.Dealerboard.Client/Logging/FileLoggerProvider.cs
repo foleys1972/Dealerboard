@@ -15,7 +15,7 @@ public class FileLoggerProvider : ILoggerProvider
     public FileLoggerProvider(string logFilePath)
     {
         _logFilePath = logFilePath;
-        
+
         // Ensure directory exists
         var directory = Path.GetDirectoryName(logFilePath);
         if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
@@ -23,12 +23,34 @@ public class FileLoggerProvider : ILoggerProvider
             Directory.CreateDirectory(directory);
         }
 
-        // Open file in append mode
-        var fileStream = new FileStream(logFilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
-        _writer = new StreamWriter(fileStream, Encoding.UTF8)
+        // Share ReadWrite so a second instance (or a lingering handle) opening the
+        // same log doesn't get denied — a locked log file must never be fatal to
+        // app startup. Fall back to a per-process log, then to a no-op writer, so
+        // logging can never prevent the app from launching.
+        _writer = OpenLogWriter(logFilePath)
+                  ?? OpenLogWriter(BuildFallbackPath(logFilePath))
+                  ?? StreamWriter.Null;
+    }
+
+    private static StreamWriter? OpenLogWriter(string path)
+    {
+        try
         {
-            AutoFlush = true
-        };
+            var fileStream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+            return new StreamWriter(fileStream, Encoding.UTF8) { AutoFlush = true };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string BuildFallbackPath(string logFilePath)
+    {
+        var dir = Path.GetDirectoryName(logFilePath) ?? ".";
+        var name = Path.GetFileNameWithoutExtension(logFilePath);
+        var ext = Path.GetExtension(logFilePath);
+        return Path.Combine(dir, $"{name}_{Environment.ProcessId}{ext}");
     }
 
     public ILogger CreateLogger(string categoryName)

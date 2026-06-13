@@ -181,14 +181,14 @@
 
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="220" />
+                    <!-- Speaker monitor + notifications column -->
+                    <ColumnDefinition Width="200" />
                 </Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>
-                    <!-- Match reference layout proportions: keep enough space for lower panels (directory/video/dialpad/etc). -->
-                    <!-- Reduce dealerboard height ~20% to prevent lower panels overlapping on shorter screens -->
-                    <!-- Reduce dealerboard height a further ~15% to remove final overlap -->
-                    <RowDefinition Height="11*" MinHeight="280" />
+                    <!-- Line button block kept compact (5/15 = 33% of the canvas); the rest goes
+                         to the lower panels (intercom groups / active call / dialpad / contacts). -->
                     <RowDefinition Height="5*" MinHeight="140" />
+                    <RowDefinition Height="10*" MinHeight="240" />
                 </Grid.RowDefinitions>
 
             <!-- Button grid + page header -->
@@ -201,7 +201,7 @@
                     Padding="14"
                     Margin="0,0,12,0"
                     VerticalAlignment="Stretch"
-                    MinHeight="220">
+                    MinHeight="120">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
@@ -266,8 +266,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <!-- Prevent oversized dealerboard buttons: allow them to scale down, only keep a modest minimum. -->
-                                <!-- ~20% smaller min height to give the lower layout more room -->
-                                <Border BorderBrush="#333333" BorderThickness="1" CornerRadius="6" Margin="2" MinHeight="44">
+                                <Border BorderBrush="#333333" BorderThickness="1" CornerRadius="6" Margin="2" MinHeight="22">
                                     <Border.Style>
                                         <Style TargetType="Border">
                                             <Setter Property="Background" Value="#1f1f1f" />
@@ -301,73 +300,86 @@
                                                     <Setter Property="Background" Value="#dc2626" />
                                                     <Setter Property="BorderBrush" Value="#ef4444" />
                                                     <DataTrigger.EnterActions>
-                                                        <BeginStoryboard>
+                                                        <BeginStoryboard x:Name="RingingFlashStoryboard">
                                                             <Storyboard RepeatBehavior="Forever">
                                                                 <ColorAnimation Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)"
                                                                                 From="#ef4444" To="#450a0a" Duration="0:0:0.4" AutoReverse="True" />
                                                             </Storyboard>
                                                         </BeginStoryboard>
                                                     </DataTrigger.EnterActions>
+                                                    <!-- Stop the looping flash when ringing ends; otherwise the
+                                                         animation keeps overriding the border colour forever (the
+                                                         red outline lingers after the call is answered). -->
+                                                    <DataTrigger.ExitActions>
+                                                        <StopStoryboard BeginStoryboardName="RingingFlashStoryboard" />
+                                                    </DataTrigger.ExitActions>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-                                    <Grid Margin="4">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto" />
-                                            <RowDefinition Height="*" />
-                                        </Grid.RowDefinitions>
-
-                                        <!-- Header row (label + monitor toggle). Toggle is above click surface. -->
-                                        <Grid Grid.Row="0" Panel.ZIndex="2">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding PageLabel}" Foreground="#B3FFFFFF" FontSize="9" FontFamily="Consolas" />
-                                            <ToggleButton Grid.Column="1"
-                                                          IsChecked="{Binding IsMonitoring, Mode=OneWay}"
-                                                          Width="34"
-                                                          Height="16"
-                                                          Margin="4,0,0,0"
-                                                          Padding="2,0"
-                                                          FontSize="8"
-                                                          FontWeight="Bold"
-                                                          Content="MON"
-                                                          ToolTip="Monitor live audio on speaker (listen only)"
-                                                          Command="{Binding DataContext.ToggleMonitorCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                          CommandParameter="{Binding}">
-                                                <ToggleButton.Style>
-                                                    <Style TargetType="ToggleButton">
-                                                        <Setter Property="Background" Value="#333333" />
-                                                        <Setter Property="Foreground" Value="#888888" />
-                                                        <Setter Property="BorderBrush" Value="#555555" />
-                                                        <Setter Property="BorderThickness" Value="1" />
-                                                        <Style.Triggers>
-                                                            <Trigger Property="IsChecked" Value="True">
-                                                                <Setter Property="Background" Value="#f59e0b" />
-                                                                <Setter Property="Foreground" Value="#1f1f1f" />
-                                                                <Setter Property="BorderBrush" Value="#fbbf24" />
-                                                            </Trigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </ToggleButton.Style>
-                                            </ToggleButton>
-                                        </Grid>
-
-                                        <!-- Click surface for 'speak' (separate button so monitor toggle doesn't trigger it) -->
-                                        <Button Grid.RowSpan="2"
-                                                Panel.ZIndex="1"
-                                                Style="{x:Null}"
-                                                Background="Transparent"
+                                    <!-- Single overlapping layout so the WHOLE tile is one reliable
+                                         click/tap target. Bottom: a full-bleed transparent Button (the
+                                         answer/talk surface). Middle: the labels, non-hit-testable so taps
+                                         fall through. Top: the MON toggle, which stays independently tappable. -->
+                                    <Grid>
+                                        <!-- Full-tile click/tap surface -->
+                                        <Button Background="Transparent"
                                                 BorderThickness="0"
+                                                HorizontalAlignment="Stretch"
+                                                VerticalAlignment="Stretch"
+                                                Stylus.IsPressAndHoldEnabled="False"
+                                                Stylus.IsFlicksEnabled="False"
                                                 Command="{Binding DataContext.LinePressedCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 CommandParameter="{Binding}">
-                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                                <TextBlock Text="{Binding DisplayLabel}" Foreground="White" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" />
-                                                <TextBlock Text="{Binding SubLabel}" Foreground="#B3FFFFFF" FontSize="10" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" HorizontalAlignment="Center" />
-                                            </StackPanel>
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <!-- Transparent fill = the entire button bounds are hit-testable. -->
+                                                    <Border Background="Transparent" />
+                                                </ControlTemplate>
+                                            </Button.Template>
                                         </Button>
+
+                                        <!-- Labels overlay (clicks pass through to the button beneath) -->
+                                        <Grid Margin="4" IsHitTestVisible="False">
+                                            <TextBlock Text="{Binding PageLabel}" HorizontalAlignment="Left" VerticalAlignment="Top" Foreground="#B3FFFFFF" FontSize="7" FontFamily="Consolas" />
+                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                                <TextBlock Text="{Binding DisplayLabel}" Foreground="White" FontWeight="SemiBold" FontSize="8" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" />
+                                                <TextBlock Text="{Binding SubLabel}" Foreground="#B3FFFFFF" FontSize="7" TextTrimming="CharacterEllipsis" Margin="0,1,0,0" HorizontalAlignment="Center" />
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- MON toggle, top-right, independently tappable -->
+                                        <ToggleButton IsChecked="{Binding IsMonitoring, Mode=OneWay}"
+                                                      HorizontalAlignment="Right"
+                                                      VerticalAlignment="Top"
+                                                      Width="40"
+                                                      Height="22"
+                                                      Margin="0,2,2,0"
+                                                      Padding="1,0"
+                                                      FontSize="9"
+                                                      FontWeight="Bold"
+                                                      Stylus.IsPressAndHoldEnabled="False"
+                                                      Stylus.IsFlicksEnabled="False"
+                                                      Content="MON"
+                                                      ToolTip="Monitor on speaker (listen live — tap panel TALK to talk)"
+                                                      Command="{Binding DataContext.ToggleMonitorCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      CommandParameter="{Binding}">
+                                            <ToggleButton.Style>
+                                                <Style TargetType="ToggleButton">
+                                                    <Setter Property="Background" Value="#333333" />
+                                                    <Setter Property="Foreground" Value="#888888" />
+                                                    <Setter Property="BorderBrush" Value="#555555" />
+                                                    <Setter Property="BorderThickness" Value="1" />
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsChecked" Value="True">
+                                                            <Setter Property="Background" Value="#f59e0b" />
+                                                            <Setter Property="Foreground" Value="#1f1f1f" />
+                                                            <Setter Property="BorderBrush" Value="#fbbf24" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </ToggleButton.Style>
+                                        </ToggleButton>
                                     </Grid>
                                 </Border>
                             </DataTemplate>
@@ -386,11 +398,13 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" MinHeight="280" />
-                        <RowDefinition Height="Auto" MaxHeight="100" />
+                        <!-- Split the column between speaker slots and notifications: the old
+                             MaxHeight=100 cap starved the notification list. -->
+                        <RowDefinition Height="5*" MinHeight="140" />
+                        <RowDefinition Height="4*" MinHeight="160" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Text="Speaker Monitor · Max 10" Foreground="#f59e0b" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,8" />
+                    <TextBlock Grid.Row="0" Text="Speaker Monitor · Max 10" Foreground="#f59e0b" FontWeight="SemiBold" FontSize="10" Margin="0,0,0,6" />
 
                     <ItemsControl Grid.Row="1" ItemsSource="{Binding MonitoredLines}" Margin="0,0,0,8" VerticalAlignment="Stretch">
                         <ItemsControl.ItemsPanel>
@@ -411,6 +425,11 @@
                                                     <Setter Property="Background" Value="#1e3a5f" />
                                                     <Setter Property="BorderBrush" Value="#f59e0b" />
                                                 </DataTrigger>
+                                                <!-- Mic open on this line (push-to-talk held) -->
+                                                <DataTrigger Binding="{Binding IsTalking}" Value="True">
+                                                    <Setter Property="Background" Value="#166534" />
+                                                    <Setter Property="BorderBrush" Value="#22c55e" />
+                                                </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
@@ -419,16 +438,44 @@
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{Binding PositionLabel}" Foreground="#f59e0b" FontSize="10" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBlock Grid.Column="0" Text="{Binding PositionLabel}" Foreground="#f59e0b" FontSize="9" FontWeight="Bold" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,6,0" />
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Label}" Foreground="White" FontSize="11" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Text="MONITOR" Foreground="#B3FFFFFF" FontSize="8" FontWeight="Bold" />
+                                            <TextBlock Text="{Binding Label}" Foreground="White" FontSize="10" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="MONITOR" Foreground="#B3FFFFFF" FontSize="7" FontWeight="Bold" />
                                         </StackPanel>
                                         <Button Grid.Column="2"
+                                                Width="48" Height="30"
+                                                FontSize="9"
+                                                FontWeight="Bold"
+                                                Margin="0,0,6,0"
+                                                Stylus.IsPressAndHoldEnabled="False"
+                                                Visibility="{Binding IsEmpty, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
+                                                Command="{Binding DataContext.MonitorPttToggleCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                ToolTip="Tap to talk on this line; tap again for listen-only">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Content" Value="TALK" />
+                                                    <Setter Property="Background" Value="#333333" />
+                                                    <Setter Property="Foreground" Value="#cccccc" />
+                                                    <Setter Property="BorderBrush" Value="#555555" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsTalking}" Value="True">
+                                                            <Setter Property="Content" Value="TALKING" />
+                                                            <Setter Property="Background" Value="#22c55e" />
+                                                            <Setter Property="Foreground" Value="#0b2912" />
+                                                            <Setter Property="BorderBrush" Value="#4ade80" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                        <Button Grid.Column="3"
                                                 Content="✕"
-                                                Width="22" Height="22"
-                                                FontSize="10"
+                                                Width="30" Height="30"
+                                                FontSize="9"
                                                 Visibility="{Binding IsEmpty, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
                                                 Command="{Binding DataContext.StopMonitorCommand, RelativeSource={RelativeSource AncestorType=Window}}"
                                                 CommandParameter="{Binding}"
@@ -932,9 +979,9 @@
                                                     <TextBlock Text="{Binding DisplayLabel}" Foreground="White" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis">
                                                         <TextBlock.ToolTip>
                                                             <TextBlock>
-                                                                <Run Text="{Binding DisplayLabel}" />
+                                                                <Run Text="{Binding DisplayLabel, Mode=OneWay}" />
                                                                 <Run Text="  " />
-                                                                <Run Text="{Binding Contact.ContactUserId}" />
+                                                                <Run Text="{Binding Contact.ContactUserId, Mode=OneWay}" />
                                                             </TextBlock>
                                                         </TextBlock.ToolTip>
                                                     </TextBlock>
@@ -1065,7 +1112,7 @@
                                                                     <TextBlock.ToolTip>
                                                                         <TextBlock Text="{Binding Username}" />
                                                                     </TextBlock.ToolTip>
-                                                                    <Run Text="{Binding Username}" />
+                                                                    <Run Text="{Binding Username, Mode=OneWay}" />
                                                                 </TextBlock>
                                                             </StackPanel>
 

@@ -64,6 +64,9 @@ public partial class MainViewModel : ObservableObject
     private HashSet<string> _disconnectedLineIds = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _ringingKeys = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _ringingLineIds = new(StringComparer.OrdinalIgnoreCase);
+    // Answer-in-flight guard: a flashing button invites double-clicks, and a second
+    // concurrent answer used to 409 and tear down the call the first one connected.
+    private readonly HashSet<string> _answerInFlightLineIds = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _incomingSipCallIds = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, (int Page, int ButtonNumber)> _lineIdToButtonLocation = new(StringComparer.OrdinalIgnoreCase);
 
@@ -194,8 +197,7 @@ public partial class MainViewModel : ObservableObject
             if (ShouldSuppressCallStatus(value))
             {
                 _isNormalizingCallStatus = true;
-                _callStatus = string.Empty;
-                OnPropertyChanged(nameof(CallStatus));
+                CallStatus = string.Empty;
             }
         }
         catch { }
@@ -1020,7 +1022,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void DeleteDirectContact(DirectContactViewModel? contact)
+    private async Task DeleteDirectContact(DirectContactViewModel? contact)
     {
         if (contact == null)
         {
@@ -2773,7 +2775,7 @@ public partial class MainViewModel : ObservableObject
         return type;
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task ToggleMonitor(DealerboardButtonViewModel? button)
     {
         if (button?.Assignment?.LineId == null)
@@ -2798,33 +2800,70 @@ public partial class MainViewModel : ObservableObject
                 return;
             }
 
-            MonitorLineResult result;
-            if (next)
-            {
-                result = await _dealerboardService.MonitorPrivateWireAsync(lineId, true);
-                await StartMonitorMediaAsync(lineId, result.MediaGroupId);
-            }
-            else
-            {
-                result = await _dealerboardService.MonitorPrivateWireAsync(lineId, false);
-                await _lineRtpBridgeService.StopMonitorAsync(lineId);
-            }
-
+            // Reflect the toggle on the monitor panel INSTANTLY; the server call,
+            // media setup and persistence happen in the background. Roll back only
+            // if the server rejects it.
             button.IsMonitoring = next;
-
             if (next) _desiredMonitoredLineIds.Add(lineId);
             else _desiredMonitoredLineIds.Remove(lineId);
-
-            // Keep applied set aligned (so reload doesn't flip unexpectedly).
             _appliedMonitoredLineIds = new HashSet<string>(_desiredMonitoredLineIds, StringComparer.OrdinalIgnoreCase);
-
-            // Persist for restore across app restarts/machines.
-            await _dealerboardService.SaveMonitoredLineIdsAsync(userId, _desiredMonitoredLineIds.Take(MaxMonitors).ToList());
             RefreshMonitoredLinesPanel();
+            ApplyCurrentPageToButtons();
+
+            try
+            {
+                if (next)
+                {
+                    var result = await _dealerboardService.MonitorPrivateWireAsync(lineId, true);
+                    await StartMonitorMediaAsync(lineId, result.MediaGroupId);
+                }
+                else
+                {
+                    await _dealerboardService.MonitorPrivateWireAsync(lineId, false);
+                    await Task.Run(() => _lineRtpBridgeService.StopMonitorAsync(lineId));
+                }
+
+                // Persist for restore across app restarts/machines.
+                await _dealerboardService.SaveMonitoredLineIdsAsync(userId, _desiredMonitoredLineIds.Take(MaxMonitors).ToList());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "ToggleMonitor server/media step failed for {LineId}; rolling back", lineId);
+                // Roll back optimistic state.
+                button.IsMonitoring = !next;
+                if (next) _desiredMonitoredLineIds.Remove(lineId);
+                else _desiredMonitoredLineIds.Add(lineId);
+                _appliedMonitoredLineIds = new HashSet<string>(_desiredMonitoredLineIds, StringComparer.OrdinalIgnoreCase);
+                RefreshMonitoredLinesPanel();
+                ApplyCurrentPageToButtons();
+                AddNotification(PackIconKind.AlertCircle, "Monitor", ex.Message);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "ToggleMonitor failed");
+        }
+    }
+
+    // Tap-to-latch talk on a monitored line: tap TALK to open the mic onto that line,
+    // tap again to go back to listen-only. Latch (not hold) so it works identically on
+    // a touchscreen turret and with a mouse; the live listen downlink is never cut.
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task MonitorPttToggle(MonitoredLineViewModel? item)
+    {
+        if (item == null || item.IsEmpty) return;
+
+        var want = !item.IsTalking;
+        try
+        {
+            item.IsTalking = want;
+            await Task.Run(() => _lineRtpBridgeService.SetMonitorTalkAsync(item.LineId, want));
+        }
+        catch (Exception ex)
+        {
+            item.IsTalking = !want; // roll back the optimistic state
+            _logger.LogWarning(ex, "Monitor talk toggle failed for {LineId}", item.LineId);
+            AddNotification(PackIconKind.AlertCircle, "Talk failed", ex.Message);
         }
     }
 
@@ -2866,6 +2905,16 @@ public partial class MainViewModel : ObservableObject
 
     private void RefreshMonitoredLinesPanel()
     {
+        // MonitoredLines is bound to the UI; mutating an ObservableCollection off the
+        // UI thread throws. Marshal to the dispatcher when called from a background
+        // path (e.g. SyncMonitorsFromPreferenceAsync after a Task.Run).
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(RefreshMonitoredLinesPanel);
+            return;
+        }
+
         MonitoredLines.Clear();
         var ids = _desiredMonitoredLineIds
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -2939,7 +2988,12 @@ public partial class MainViewModel : ObservableObject
         StartCallDurationTimer();
     }
 
-    [RelayCommand]
+    // AllowConcurrentExecutions: an async [RelayCommand] disables its button while
+    // running and only re-enables on a command re-query (which a mouse-over forces) —
+    // that caused "hover until white, then click" instead of instant response. Keep
+    // the button always live; re-entrancy is guarded by _answerInFlightLineIds and
+    // the per-line state checks below.
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task LinePressed(DealerboardButtonViewModel? button)
     {
         if (button == null)
@@ -3050,14 +3104,16 @@ public partial class MainViewModel : ObservableObject
                         || msg.Contains("Conflict", StringComparison.OrdinalIgnoreCase)
                         || msg.Contains("no longer ringing", StringComparison.OrdinalIgnoreCase))
                     {
+                        // Stale ring: reset to idle. Do NOT fall through to placing an
+                        // outbound call — that turned one failed answer into a hangup +
+                        // redial cycle that took several presses to recover from.
                         try { await _dealerboardService.EndCallAsync(lineId); } catch { }
                         await ClearLocalLineCallStateAsync(lineId);
-                    }
-                    else
-                    {
-                        AddNotification(PackIconKind.AlertCircle, "Answer failed", ex.Message);
                         return;
                     }
+
+                    AddNotification(PackIconKind.AlertCircle, "Answer failed", ex.Message);
+                    return;
                 }
             }
             else if (button.IsRinging && !isIncomingRing)
@@ -3281,7 +3337,8 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            await _lineRtpBridgeService.StartMonitorAsync(lineId, groupId);
+            // Background thread: WASAPI/RTP setup must not block the UI thread.
+            await Task.Run(() => _lineRtpBridgeService.StartMonitorAsync(lineId, groupId));
         }
         catch (Exception ex)
         {
@@ -3291,38 +3348,75 @@ public partial class MainViewModel : ObservableObject
 
     private async Task AnswerIncomingLineAsync(DealerboardButtonViewModel button, string lineId)
     {
-        _incomingSipCallIds.TryGetValue(lineId, out var sipCallId);
-
-        button.IsPrivate = true;
-        _speakerActiveButton = button;
-        HasActiveLineCall = true;
-        OnPropertyChanged(nameof(IsAnyCallActive));
+        // Guard against concurrent answers (double-press on a flashing button, or a
+        // press racing the auto-join path): the second attempt used to 409 and tear
+        // down the call the first one had just connected.
+        if (!_answerInFlightLineIds.Add(lineId))
+        {
+            return;
+        }
 
         try
         {
-            var callResult = await _dealerboardService.AnswerIncomingLineAsync(lineId, sipCallId);
+            _incomingSipCallIds.TryGetValue(lineId, out var sipCallId);
+
+            // Reflect "answered" INSTANTLY: the user clicked, so stop the ring, turn
+            // the button green, and start the call timer immediately. The server
+            // answer and media path run in the background; we only roll back if the
+            // answer itself fails. The 1.5s status poll reconciles either way.
             StopArdRingtone();
-            await StartLineMediaAsync(callResult);
             _ringingLineIds.Remove(lineId);
-            _incomingSipCallIds.Remove(lineId);
             if (TryGetButtonForLineId(lineId, out var pageNumber, out var buttonNumber, out _))
             {
                 _ringingKeys.Remove($"{pageNumber}-{buttonNumber}");
             }
-            NotifyRingingCountChanged();
+            button.IsPrivate = true;
+            _speakerActiveButton = button;
             _privateLineIds.Add(lineId);
+            HasActiveLineCall = true;
+            OnPropertyChanged(nameof(IsAnyCallActive));
+            NotifyRingingCountChanged();
             ApplyCurrentPageToButtons();
             SetLineCallBanner(button.DisplayLabel, ringing: false);
-            AddNotification(PackIconKind.Phone, "Incoming answered", button.DisplayLabel);
+
+            try
+            {
+                var callResult = await _dealerboardService.AnswerIncomingLineAsync(lineId, sipCallId);
+                _incomingSipCallIds.Remove(lineId);
+                AddNotification(PackIconKind.Phone, "Incoming answered", button.DisplayLabel);
+
+                // Attach media fully detached on a background thread. It must NOT be
+                // awaited here: if the WASAPI/RTP setup stalls, awaiting it would hold
+                // the answer-in-flight guard open and make every later click a no-op
+                // ("won't pick up"). The call is already answered server-side.
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await StartLineMediaAsync(callResult);
+                    }
+                    catch (Exception mediaEx)
+                    {
+                        _logger.LogWarning(mediaEx, "Line media attach failed after answer for {LineId}", lineId);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AnswerIncomingLineAsync failed for {LineId}", lineId);
+                // Roll back the optimistic UI; the poll will restore the true ring state.
+                button.IsPrivate = false;
+                if (_speakerActiveButton == button) _speakerActiveButton = null;
+                _privateLineIds.Remove(lineId);
+                HasActiveLineCall = _privateLineIds.Count > 0;
+                OnPropertyChanged(nameof(IsAnyCallActive));
+                ApplyCurrentPageToButtons();
+                throw;
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogWarning(ex, "AnswerIncomingLineAsync failed for {LineId}", lineId);
-            button.IsPrivate = false;
-            if (_speakerActiveButton == button) _speakerActiveButton = null;
-            HasActiveLineCall = false;
-            OnPropertyChanged(nameof(IsAnyCallActive));
-            throw;
+            _answerInFlightLineIds.Remove(lineId);
         }
     }
 
@@ -3337,7 +3431,10 @@ public partial class MainViewModel : ObservableObject
 
         try
         {
-            await _lineRtpBridgeService.StartLineCallAsync(mediaGroupId);
+            // Run on a background thread: the RTP bridge + WASAPI mic/playback setup
+            // does synchronous device work that would otherwise block the UI thread
+            // and freeze every button for ~2s right after answering.
+            await Task.Run(() => _lineRtpBridgeService.StartLineCallAsync(mediaGroupId));
             _activeLineMediaGroupId = mediaGroupId;
             _logger.LogInformation(
                 "Line RTP media started. mediaGroupId={MediaGroupId} joinedExisting={JoinedExisting}",
@@ -3441,7 +3538,7 @@ public partial class MainViewModel : ObservableObject
         await Task.CompletedTask;
     }
 
-    [RelayCommand]
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task AnswerNextRingingLine()
     {
         var lineId = GetFirstRingingLineId();

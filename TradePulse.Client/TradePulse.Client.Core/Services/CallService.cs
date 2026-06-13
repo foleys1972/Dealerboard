@@ -19,6 +19,11 @@ public class CallService : ICallService
     private bool? _streamingEnableVideo;
     private Call? _currentCall;
 
+    // Voice-only direct calls use the native RTP/Opus bridge (UDP, ~20ms frames)
+    // instead of the WebView2 mediasoup engine. Tracks the callId whose media is
+    // currently carried natively so teardown stops the right bridge.
+    private string? _directRtpCallId;
+
     private readonly object _speakerLock = new();
     private readonly HashSet<string> _speakers = new(StringComparer.OrdinalIgnoreCase);
 
@@ -612,38 +617,58 @@ public class CallService : ICallService
         }
     }
 
-    private void EnsureCallableOrThrow()
+    /// <summary>
+    /// Atomically verifies no call is in progress and claims the call slot for
+    /// <paramref name="call"/>. The check and the assignment MUST happen under one
+    /// lock acquisition: a check-then-assign-later pattern lets two concurrent
+    /// call starts both pass the check and clobber each other's state.
+    /// </summary>
+    private void ClaimCallSlotOrThrow(Call call)
     {
         lock (_callLock)
         {
-            if (_currentCall == null)
+            if (_currentCall != null)
             {
-                return;
+                if (_currentCall.State == CallState.Connected)
+                {
+                    throw new InvalidOperationException("Already in a call");
+                }
+
+                if (_currentCall.State != CallState.Ended && _currentCall.State != CallState.Failed)
+                {
+                    _logger.LogWarning(
+                        "Clearing stale call before starting a new one: callId={CallId} state={State}",
+                        _currentCall.Id,
+                        _currentCall.State);
+                }
             }
 
-            if (_currentCall.State == CallState.Ended || _currentCall.State == CallState.Failed)
+            _currentCall = call;
+        }
+
+        lock (_speakerLock)
+        {
+            _speakers.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Clears the call slot only if it is still occupied by <paramref name="call"/>.
+    /// An unconditional null-out can clobber a newer call claimed by another thread.
+    /// </summary>
+    private void ReleaseCallSlotIfOwned(Call call)
+    {
+        lock (_callLock)
+        {
+            if (ReferenceEquals(_currentCall, call))
             {
                 _currentCall = null;
-                return;
             }
-
-            if (_currentCall.State == CallState.Connected)
-            {
-                throw new InvalidOperationException("Already in a call");
-            }
-
-            _logger.LogWarning(
-                "Clearing stale call before starting a new one: callId={CallId} state={State}",
-                _currentCall.Id,
-                _currentCall.State);
-            _currentCall = null;
         }
     }
 
     public async Task<Call> StartCallAsync(string targetId, CallType callType, bool enableVideo = false)
     {
-        EnsureCallableOrThrow();
-
         // Outgoing calls should start with microphone unmuted (receiver may auto-mute on incoming).
         _audioService.IsMuted = false;
 
@@ -661,12 +686,7 @@ public class CallService : ICallService
 
         call.IsMuted = false;
 
-        _currentCall = call;
-
-        lock (_speakerLock)
-        {
-            _speakers.Clear();
-        }
+        ClaimCallSlotOrThrow(call);
 
         try
         {
@@ -681,7 +701,7 @@ public class CallService : ICallService
             _logger.LogError(ex, "Failed to start call");
             call.State = CallState.Failed;
             CallStateChanged?.Invoke(this, call);
-            _currentCall = null;
+            ReleaseCallSlotIfOwned(call);
             throw;
         }
 
@@ -701,8 +721,6 @@ public class CallService : ICallService
             throw new InvalidOperationException("No target users specified");
         }
 
-        EnsureCallableOrThrow();
-
         _audioService.IsMuted = false;
 
         var call = new Call
@@ -715,12 +733,7 @@ public class CallService : ICallService
             Participants = targets
         };
 
-        _currentCall = call;
-
-        lock (_speakerLock)
-        {
-            _speakers.Clear();
-        }
+        ClaimCallSlotOrThrow(call);
 
         try
         {
@@ -741,7 +754,7 @@ public class CallService : ICallService
             _logger.LogError(ex, "Failed to start conference call");
             call.State = CallState.Failed;
             CallStateChanged?.Invoke(this, call);
-            _currentCall = null;
+            ReleaseCallSlotIfOwned(call);
             throw;
         }
 
@@ -750,8 +763,6 @@ public class CallService : ICallService
 
     public async Task<Call> StartGroupCallAsync(string groupId, CallType callType)
     {
-        EnsureCallableOrThrow();
-
         // Outgoing group calls should start with microphone unmuted.
         _audioService.IsMuted = false;
 
@@ -766,12 +777,7 @@ public class CallService : ICallService
             StartTime = DateTime.UtcNow
         };
 
-        _currentCall = call;
-
-        lock (_speakerLock)
-        {
-            _speakers.Clear();
-        }
+        ClaimCallSlotOrThrow(call);
 
         try
         {
@@ -795,8 +801,6 @@ public class CallService : ICallService
 
     public async Task<Call> StartBroadcastAsync(string groupId, bool monitor = false)
     {
-        EnsureCallableOrThrow();
-
         var call = new Call
         {
             Id = Guid.NewGuid().ToString(),
@@ -809,12 +813,7 @@ public class CallService : ICallService
             StartTime = DateTime.UtcNow
         };
 
-        _currentCall = call;
-
-        lock (_speakerLock)
-        {
-            _speakers.Clear();
-        }
+        ClaimCallSlotOrThrow(call);
 
         try
         {
@@ -1324,18 +1323,73 @@ public class CallService : ICallService
                 }
                 else
                 {
-                    try
+                    // Voice-only direct calls: prefer the native RTP/Opus bridge.
+                    // It is plain UDP + Opus (the same proven path as lines/broadcast)
+                    // with far lower latency than the WebView2 WebRTC engine, and both
+                    // paths share the same server-side mediasoup router (groupId=callId),
+                    // so the remote side can be a WebRTC client and still interoperate.
+                    // Conference and video calls stay on the WebView2 engine (multi-producer
+                    // consume and video rendering are not supported by the native bridge).
+                    var useNativeAudio = activeCall.Type == CallType.Direct
+                        && !activeCall.EnableVideo
+                        && !string.Equals(
+                            Environment.GetEnvironmentVariable("TRADEPULSE_NATIVE_CALL_AUDIO"),
+                            "false",
+                            StringComparison.OrdinalIgnoreCase);
+
+                    // If we previously carried this (or another) call natively and are now
+                    // switching to the WebView2 engine (e.g. voice -> video upgrade), the
+                    // native bridge must be stopped first or both engines will produce audio.
+                    string? nativeToStop = null;
+                    lock (_callLock)
                     {
-                        // If this is a re-setup (e.g. enable video), stop existing call media first.
-                        // Best-effort; StartCallAsync should still succeed even if StopCallAsync fails.
-                        await _webMediaEngineService.StopCallAsync(data.CallId);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to stop WebView2 media engine call prior to restart (callId={CallId})", data.CallId);
+                        if (_directRtpCallId != null && (!useNativeAudio || !string.Equals(_directRtpCallId, data.CallId, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            nativeToStop = _directRtpCallId;
+                            _directRtpCallId = null;
+                        }
                     }
 
-                    await _webMediaEngineService.StartCallAsync(data.CallId, activeCall.EnableVideo);
+                    if (nativeToStop != null)
+                    {
+                        try { await _broadcastRtpBridgeService.StopAsync(nativeToStop); } catch { }
+                    }
+
+                    var nativeStarted = false;
+                    if (useNativeAudio)
+                    {
+                        try
+                        {
+                            await _broadcastRtpBridgeService.StartTransmitAsync(data.CallId);
+                            lock (_callLock)
+                            {
+                                _directRtpCallId = data.CallId;
+                            }
+                            nativeStarted = true;
+                            _logger.LogInformation("Native RTP/Opus media started for direct call {CallId}", data.CallId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Native RTP audio failed for call {CallId}; falling back to WebView2 media engine", data.CallId);
+                            try { await _broadcastRtpBridgeService.StopAsync(data.CallId); } catch { }
+                        }
+                    }
+
+                    if (!nativeStarted)
+                    {
+                        try
+                        {
+                            // If this is a re-setup (e.g. enable video), stop existing call media first.
+                            // Best-effort; StartCallAsync should still succeed even if StopCallAsync fails.
+                            await _webMediaEngineService.StopCallAsync(data.CallId);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "Failed to stop WebView2 media engine call prior to restart (callId={CallId})", data.CallId);
+                        }
+
+                        await _webMediaEngineService.StartCallAsync(data.CallId, activeCall.EnableVideo);
+                    }
                 }
 
                 _logger.LogInformation("Started outgoing media streaming for call: {CallId}", data.CallId);
@@ -1378,6 +1432,21 @@ public class CallService : ICallService
             try
             {
                 _webMediaEngineService.StopAllAsync().Wait(TimeSpan.FromSeconds(1));
+
+                // Stop the native RTP bridge if this call's audio was carried natively.
+                try
+                {
+                    string? directRtpToStop;
+                    directRtpToStop = _directRtpCallId;
+                    _directRtpCallId = null;
+
+                    if (!string.IsNullOrWhiteSpace(directRtpToStop))
+                    {
+                        _broadcastRtpBridgeService.StopAsync(directRtpToStop).Wait(TimeSpan.FromSeconds(1));
+                    }
+                }
+                catch { }
+
                 try
                 {
                     // Broadcast monitoring/transmit uses the RTP bridge independently of 1-to-1 calls.

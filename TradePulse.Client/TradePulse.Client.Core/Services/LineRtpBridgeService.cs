@@ -134,6 +134,38 @@ public sealed class LineRtpBridgeService : ILineRtpBridgeService, IDisposable
         }
     }
 
+    public async Task SetMonitorTalkAsync(string lineId, bool talk, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(lineId)) return;
+
+        RtpOpusBridgeService? bridge;
+        string? mediaGroupId;
+        lock (_lock)
+        {
+            _monitorBridges.TryGetValue(lineId, out bridge);
+            mediaGroupId = _monitorMediaGroupIds.GetValueOrDefault(lineId);
+        }
+
+        if (bridge == null || string.IsNullOrWhiteSpace(mediaGroupId))
+        {
+            _logger.LogDebug("SetMonitorTalk ignored — no monitor session for line {LineId}", lineId);
+            return;
+        }
+
+        // Same media group: the bridge switches uplink on/off in place, keeping
+        // the listen downlink running (no audio gap).
+        if (talk)
+        {
+            await bridge.StartAsync(mediaGroupId, cancellationToken);
+        }
+        else
+        {
+            await bridge.StartReceiveOnlyAsync(mediaGroupId, cancellationToken);
+        }
+
+        _logger.LogInformation("Monitor PTT {State} for line {LineId}", talk ? "ON" : "OFF", lineId);
+    }
+
     public async Task StopMonitorAsync(string lineId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(lineId)) return;

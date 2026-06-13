@@ -104,31 +104,38 @@ async function clearStaleInternalCallForLine(lineId) {
   return true;
 }
 
-async function connectInternalPair(callId, callerLineId, calleeLineId) {
-  const tryBridge = async () => {
-    try {
-      return await bridgeLinesForConference(callerLineId, calleeLineId);
-    } catch (error) {
-      logger.warn('Internal wire media bridge failed', {
-        callId,
-        callerLineId,
-        calleeLineId,
-        error: error?.message || error,
-      });
-      return null;
-    }
-  };
-
-  // Clients attach MediaSoup producers asynchronously; retry so audio is not silent.
-  let session = await tryBridge();
-  for (const delayMs of [1500, 3500, 6000]) {
-    if (session?.pipes?.length > 0) break;
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
-    session = await tryBridge();
-  }
-
+function connectInternalPair(callId, callerLineId, calleeLineId) {
+  // Mark the call connected immediately so both UIs stop ringing and start the
+  // call timer the instant the call is answered. Do NOT block on the media bridge:
+  // bridging retries take several seconds (clients attach MediaSoup producers
+  // asynchronously) and previously the answer response waited the whole time,
+  // leaving the button flashing "ringing" for ~10s after a successful answer.
   updateLineCallStatus(callerLineId, callId, 'connected');
   updateLineCallStatus(calleeLineId, callId, 'connected');
+
+  // Bridge media in the background; audio attaches as producers appear.
+  void (async () => {
+    const tryBridge = async () => {
+      try {
+        return await bridgeLinesForConference(callerLineId, calleeLineId);
+      } catch (error) {
+        logger.warn('Internal wire media bridge failed', {
+          callId,
+          callerLineId,
+          calleeLineId,
+          error: error?.message || error,
+        });
+        return null;
+      }
+    };
+
+    let session = await tryBridge();
+    for (const delayMs of [1500, 3500, 6000]) {
+      if (session?.pipes?.length > 0) break;
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      session = await tryBridge();
+    }
+  })();
 }
 
 async function callInternalPrivateWire({ lineId, userId, autoRing, hoot, wireInfo }) {
@@ -380,13 +387,32 @@ async function answerInternalIncomingLine({ lineId, userId, sipCallId }) {
 
   await clearStaleInternalCallForLine(lineIdStr);
 
-  const resolved = sipCallId
+  // The client caches the ringing sipCallId per line, and call IDs are unique per
+  // call — so a cached ID from an earlier ring is stale for the current one. If it
+  // doesn't resolve to a live internal call, fall back to the ringing call for
+  // this line so the first button press answers reliably.
+  let resolved = sipCallId
     ? { callId: String(sipCallId), call: getInternalCall(sipCallId) }
-    : findRingingInternalCallForLine(lineId);
+    : null;
+  if (!resolved?.call) {
+    resolved = findRingingInternalCallForLine(lineId);
+  }
 
   if (!resolved?.call) return null;
   if (resolved.call.calleeLineId !== lineIdStr) return null;
   if (resolved.call.status !== 'ringing') {
+    if (resolved.call.status === 'connected') {
+      // Double-press while connecting: idempotent success instead of a 409 that
+      // makes the client tear down the call it just answered.
+      return {
+        success: true,
+        message: 'Internal call already answered',
+        mediaGroupId: buildLineMediaGroupId(lineIdStr),
+        sipCallId: resolved.callId,
+        internalCall: true,
+        alreadyAnswered: true,
+      };
+    }
     throw new LineOperationError(409, 'Internal call is no longer ringing');
   }
 
@@ -465,6 +491,9 @@ function collectInternalRingingLineIds(lineIds = []) {
   const ringing = new Set();
   for (const call of activeInternalCalls.values()) {
     if (call.status !== 'ringing') continue;
+    // Never report an abandoned ring as ringing — otherwise a missed teardown
+    // would leave the peer's button flashing indefinitely.
+    if (isStaleRingingInternalCall(call)) continue;
     if (wanted.has(String(call.calleeLineId))) {
       ringing.add(String(call.calleeLineId));
     }

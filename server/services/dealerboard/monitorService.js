@@ -15,6 +15,7 @@ const {
 } = require('../../db/dealerboard/lineSessions');
 const { LineOperationError } = require('./errors');
 const { buildLineMediaGroupId, ensureLineMediaRouter } = require('./lineMediaService');
+const { resolveUserDbId } = require('../../db/dealerboard/helpers');
 
 const MIN_USERS_FOR_MONITOR_ROOM = Math.max(
   1,
@@ -84,6 +85,11 @@ async function ensureMonitorMatrixRoom(lineId, userId, monitoringUserIds) {
 async function toggleMonitor({ lineId, userId, enabled }) {
   const mediaGroupId = buildLineMediaGroupId(lineId);
 
+  // The route passes the legacy id/username (e.g. "trader2"); monitor sessions
+  // FK to users(id), so resolve to the real users.id or the insert fails with
+  // dealerboard_monitor_sessions_user_id_fkey.
+  const resolvedUserId = await resolveUserDbId(userId);
+
   if (enabled) {
     try {
       await ensureLineMediaRouter(lineId);
@@ -91,7 +97,7 @@ async function toggleMonitor({ lineId, userId, enabled }) {
       logger.warn('Failed to ensure line media router for monitor', { lineId, error: error?.message || error });
     }
 
-    const existingSession = await getActiveMonitorSession(lineId, userId);
+    const existingSession = await getActiveMonitorSession(lineId, resolvedUserId);
     if (existingSession) {
       return {
         success: true,
@@ -104,7 +110,7 @@ async function toggleMonitor({ lineId, userId, enabled }) {
     }
 
     const sessionId = `monitor_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    await createMonitorSession(sessionId, lineId, userId);
+    await createMonitorSession(sessionId, lineId, resolvedUserId);
 
     const activeSessions = await getActiveMonitorSessions(lineId);
     const monitoringUsers = activeSessions.map((row) => row.user_id);
@@ -135,7 +141,7 @@ async function toggleMonitor({ lineId, userId, enabled }) {
     };
   }
 
-  await endMonitorSession(lineId, userId);
+  await endMonitorSession(lineId, resolvedUserId);
   const remainingMonitors = await countActiveMonitorSessions(lineId);
 
   return {

@@ -565,12 +565,18 @@ async function endLineCall({ lineId, userId }) {
   const session = await getLatestUserSession(lineId, resolvedUserId);
   let sipCallId = session?.metadata?.sipCallId || null;
 
+  // Resolve the live internal call this line participates in. The session's stored
+  // sipCallId can be stale or missing, so if it doesn't resolve to a live internal
+  // call, fall back to the active internal call found by lineId. Without this,
+  // teardown is skipped on hang-up and the peer's button stays stuck flashing
+  // "ringing" — the line-button-status poll keeps reporting it via
+  // collectInternalRingingLineIds.
   const internalMatch = findActiveInternalCallForLine(lineId);
-  if (!sipCallId && internalMatch?.callId) {
+  let internalCall = sipCallId ? getInternalCall(sipCallId) : null;
+  if (!internalCall && internalMatch?.call) {
+    internalCall = internalMatch.call;
     sipCallId = internalMatch.callId;
   }
-
-  const internalCall = sipCallId ? getInternalCall(sipCallId) : internalMatch?.call;
   const isInternalPairCall = Boolean(internalCall && internalCall.status !== 'ended');
 
   await endActiveUserSession(lineId, resolvedUserId, 'active');

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using System.Threading.Channels;
 using Newtonsoft.Json;
 
 namespace TradePulse.Client.Core.Services;
@@ -10,8 +11,23 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
     private readonly ISocketService _socketService;
     private readonly IAudioService _audioService;
     private string? _currentCallId;
-    private bool _isStreaming = false;
+    private volatile bool _isStreaming = false;
     private bool _disposed = false;
+
+    // Outbound mic frames MUST be sent in capture order. A per-frame Task.Run
+    // lets frames overtake each other on the thread pool and arrive scrambled,
+    // which the receiver plays back as garbled audio. A bounded single-consumer
+    // channel preserves order and sheds load (drops oldest) under backpressure
+    // instead of accumulating latency.
+    private readonly Channel<byte[]> _sendQueue = Channel.CreateBounded<byte[]>(
+        new BoundedChannelOptions(32)
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            FullMode = BoundedChannelFullMode.DropOldest
+        });
+    private readonly CancellationTokenSource _sendLoopCts = new();
+    private Task? _sendLoopTask;
 
     public bool IsStreaming => _isStreaming;
 
@@ -32,6 +48,37 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
         // Subscribe to socket events for incoming audio
         _socketService.On("audio-data", OnSocketAudioData);
         _socketService.On("call-audio", OnSocketAudioData); // Alternative event name
+
+        _sendLoopTask = Task.Run(() => SendLoopAsync(_sendLoopCts.Token));
+    }
+
+    private async Task SendLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (await _sendQueue.Reader.WaitToReadAsync(ct))
+            {
+                while (_sendQueue.Reader.TryRead(out var frame))
+                {
+                    try
+                    {
+                        await SendAudioDataAsync(frame);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error sending audio data");
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown.
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Audio send loop terminated unexpectedly");
+        }
     }
 
     public async Task StartStreamingAsync(string callId)
@@ -119,18 +166,8 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
             return;
         }
 
-        // Send audio data to server
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await SendAudioDataAsync(audioData);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error sending audio data");
-            }
-        });
+        // Enqueue for the ordered send loop; never block the capture thread.
+        _sendQueue.Writer.TryWrite(audioData);
     }
 
     private void OnSocketAudioData(object data)
@@ -177,19 +214,18 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
 
             var audioBytes = Convert.FromBase64String(audioDataB64);
 
-            // Play audio through NAudio
-            _ = Task.Run(async () =>
+            // Play inline on the socket dispatch thread: PlayAudioAsync only appends
+            // to a buffered provider (non-blocking), and per-frame Task.Run would let
+            // frames overtake each other and play out of order.
+            try
             {
-                try
-                {
-                    await _audioService.PlayAudioAsync(audioBytes);
-                    AudioDataReceived?.Invoke(this, audioBytes);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error playing audio data");
-                }
-            });
+                _audioService.PlayAudioAsync(audioBytes).GetAwaiter().GetResult();
+                AudioDataReceived?.Invoke(this, audioBytes);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error playing audio data");
+            }
         }
         catch (Exception ex)
         {
@@ -240,11 +276,23 @@ public class AudioStreamingService : IAudioStreamingService, IDisposable
     {
         if (!_disposed)
         {
+            _disposed = true;
             StopStreamingAsync().Wait(TimeSpan.FromSeconds(2));
             _audioService.AudioDataAvailable -= OnAudioDataAvailable;
             _socketService.Off("audio-data");
             _socketService.Off("call-audio");
-            _disposed = true;
+
+            try
+            {
+                _sendQueue.Writer.TryComplete();
+                _sendLoopCts.Cancel();
+                _sendLoopTask?.Wait(TimeSpan.FromSeconds(1));
+            }
+            catch { }
+            finally
+            {
+                _sendLoopCts.Dispose();
+            }
         }
     }
 

@@ -14,6 +14,13 @@ public class AudioService : IAudioService, IDisposable
     private readonly WaveFormat _waveFormat = new WaveFormat(48000, 16, 2); // 48kHz, 16-bit, stereo
     private bool _disposed = false;
     private bool _isRecording = false;
+    private readonly object _playbackLock = new();
+    private readonly object _captureLock = new();
+    private bool _captureStopRequested;
+    // Max audio buffered before we trim to stay live. Keeping this low is what
+    // separates a usable trading intercom (<150ms mouth-to-ear target) from one
+    // that drifts seconds behind under jitter.
+    private static readonly TimeSpan MaxPlaybackBacklog = TimeSpan.FromMilliseconds(250);
     private float _inputVolume = 1.0f;
     private float _outputVolume = 1.0f;
     private bool _isMuted = false;
@@ -80,43 +87,48 @@ public class AudioService : IAudioService, IDisposable
 
     public Task StartRecordingAsync()
     {
-        if (_waveIn != null && IsRecording)
+        lock (_captureLock)
         {
-            return Task.CompletedTask;
-        }
-
-        try
-        {
-            var device = GetSelectedInputDevice();
-            if (device != null)
+            if (_waveIn != null && IsRecording)
             {
-                try
+                return Task.CompletedTask;
+            }
+
+            try
+            {
+                _captureStopRequested = false;
+
+                var device = GetSelectedInputDevice();
+                if (device != null)
                 {
-                    _waveIn = new WasapiCapture(device);
+                    try
+                    {
+                        _waveIn = new WasapiCapture(device);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to start capture on selected input device. Falling back to default device. deviceIndex={Index} device={Device}", _inputDeviceIndex, device.FriendlyName);
+                        _waveIn = new WasapiCapture();
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _logger.LogWarning(ex, "Failed to start capture on selected input device. Falling back to default device. deviceIndex={Index} device={Device}", _inputDeviceIndex, device.FriendlyName);
                     _waveIn = new WasapiCapture();
                 }
+                _waveIn.WaveFormat = _waveFormat;
+
+                _waveIn.DataAvailable += OnDataAvailable;
+                _waveIn.RecordingStopped += OnRecordingStopped;
+
+                _waveIn.StartRecording();
+                _isRecording = true;
+                _logger.LogInformation("Audio recording started");
             }
-            else
+            catch (Exception ex)
             {
-                _waveIn = new WasapiCapture();
+                _logger.LogError(ex, "Failed to start recording");
+                throw;
             }
-            _waveIn.WaveFormat = _waveFormat;
-
-            _waveIn.DataAvailable += OnDataAvailable;
-            _waveIn.RecordingStopped += OnRecordingStopped;
-
-            _waveIn.StartRecording();
-            _isRecording = true;
-            _logger.LogInformation("Audio recording started");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to start recording");
-            throw;
         }
 
         return Task.CompletedTask;
@@ -124,13 +136,17 @@ public class AudioService : IAudioService, IDisposable
 
     public Task StopRecordingAsync()
     {
-        if (_waveIn != null)
+        lock (_captureLock)
         {
-            _waveIn.StopRecording();
-            _waveIn.Dispose();
-            _waveIn = null;
-            _isRecording = false;
-            _logger.LogInformation("Audio recording stopped");
+            if (_waveIn != null)
+            {
+                _captureStopRequested = true;
+                _waveIn.StopRecording();
+                _waveIn.Dispose();
+                _waveIn = null;
+                _isRecording = false;
+                _logger.LogInformation("Audio recording stopped");
+            }
         }
 
         return Task.CompletedTask;
@@ -151,36 +167,52 @@ public class AudioService : IAudioService, IDisposable
                 _logger.LogError(ex, "PlaybackAudioAvailable subscriber threw; playback continues");
             }
 
-            if (_waveOut == null)
+            lock (_playbackLock)
             {
-                var device = GetSelectedOutputDevice();
-                _waveOut = device != null
-                    ? new WasapiOut(device, AudioClientShareMode.Shared, true, 20)
-                    : new WasapiOut(AudioClientShareMode.Shared, true, 20);
-
-                _bufferedWaveProvider = new BufferedWaveProvider(_waveFormat)
+                if (_waveOut == null)
                 {
-                    BufferLength = _waveFormat.AverageBytesPerSecond, // 1 second buffer
-                    DiscardOnBufferOverflow = true,
-                    // Ensure reads always return full buffers (pads with zeros on underrun)
-                    // so the output device doesn't stop/restart and pop/click when audio resumes.
-                    ReadFully = true
-                };
+                    var device = GetSelectedOutputDevice();
+                    _waveOut = device != null
+                        ? new WasapiOut(device, AudioClientShareMode.Shared, true, 20)
+                        : new WasapiOut(AudioClientShareMode.Shared, true, 20);
 
-                _waveOut.Init(_bufferedWaveProvider);
-                _waveOut.Volume = _outputVolume;
-                _logger.LogInformation("Audio playback initialized. deviceIndex={Index} device={Device}", _outputDeviceIndex, device?.FriendlyName ?? "<default>");
-            }
+                    _bufferedWaveProvider = new BufferedWaveProvider(_waveFormat)
+                    {
+                        // Keep the buffer small: a large buffer lets latency build up
+                        // under jitter and never recover (audio drifts seconds behind).
+                        BufferLength = _waveFormat.AverageBytesPerSecond / 2, // 500ms hard cap
+                        DiscardOnBufferOverflow = true,
+                        // Ensure reads always return full buffers (pads with zeros on underrun)
+                        // so the output device doesn't stop/restart and pop/click when audio resumes.
+                        ReadFully = true
+                    };
 
-            if (_bufferedWaveProvider != null)
-            {
-                _bufferedWaveProvider.AddSamples(audioData, 0, audioData.Length);
-            }
+                    _waveOut.Init(_bufferedWaveProvider);
+                    _waveOut.Volume = _outputVolume;
+                    _logger.LogInformation("Audio playback initialized. deviceIndex={Index} device={Device}", _outputDeviceIndex, device?.FriendlyName ?? "<default>");
+                }
 
-            if (_waveOut.PlaybackState != PlaybackState.Playing)
-            {
-                _waveOut.Play();
-                _logger.LogInformation("Audio playback started. volume={Volume}", _outputVolume);
+                if (_bufferedWaveProvider != null)
+                {
+                    // Latency clamp: if backlog exceeds the live threshold, drop the
+                    // stale audio so the conversation stays real-time. A brief gap is
+                    // far better on a trading floor than permanently delayed audio.
+                    if (_bufferedWaveProvider.BufferedDuration > MaxPlaybackBacklog)
+                    {
+                        _logger.LogWarning("Playback backlog {Backlog}ms exceeded {Max}ms; trimming to stay live",
+                            (int)_bufferedWaveProvider.BufferedDuration.TotalMilliseconds,
+                            (int)MaxPlaybackBacklog.TotalMilliseconds);
+                        _bufferedWaveProvider.ClearBuffer();
+                    }
+
+                    _bufferedWaveProvider.AddSamples(audioData, 0, audioData.Length);
+                }
+
+                if (_waveOut.PlaybackState != PlaybackState.Playing)
+                {
+                    _waveOut.Play();
+                    _logger.LogInformation("Audio playback started. volume={Volume}", _outputVolume);
+                }
             }
         }
         catch (Exception ex)
@@ -210,12 +242,15 @@ public class AudioService : IAudioService, IDisposable
         _outputDeviceIndex = Math.Max(0, deviceIndex);
 
         // Stop current playback if active
-        if (_waveOut != null)
+        lock (_playbackLock)
         {
-            _waveOut.Stop();
-            _waveOut.Dispose();
-            _waveOut = null;
-            _bufferedWaveProvider = null;
+            if (_waveOut != null)
+            {
+                _waveOut.Stop();
+                _waveOut.Dispose();
+                _waveOut = null;
+                _bufferedWaveProvider = null;
+            }
         }
 
         return Task.CompletedTask;
@@ -321,6 +356,36 @@ public class AudioService : IAudioService, IDisposable
     {
         _isRecording = false;
         _logger.LogInformation("Recording stopped: {Exception}", e.Exception?.Message);
+
+        // Device failure mid-call (e.g. headset unplugged): attempt one automatic
+        // restart on the current default device so the user is not left transmitting
+        // silence with no indication.
+        if (e.Exception != null && !_captureStopRequested && !_disposed)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(500);
+                    lock (_captureLock)
+                    {
+                        if (_captureStopRequested || _disposed || _isRecording) return;
+
+                        try { _waveIn?.Dispose(); } catch { }
+                        _waveIn = null;
+                    }
+
+                    _logger.LogWarning("Capture device failed; attempting automatic restart on default device");
+                    // Reset to default device selection for the retry.
+                    _inputDevices.Clear();
+                    await StartRecordingAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Automatic capture restart failed");
+                }
+            });
+        }
     }
 
     private void ApplyVolume(byte[] audioData, float volume)
@@ -357,14 +422,16 @@ public class AudioService : IAudioService, IDisposable
     {
         if (!_disposed)
         {
-            StopRecordingAsync().Wait(TimeSpan.FromSeconds(1));
-            
-            _waveOut?.Stop();
-            _waveOut?.Dispose();
-            _waveOut = null;
-            _bufferedWaveProvider = null;
-
             _disposed = true;
+            StopRecordingAsync().Wait(TimeSpan.FromSeconds(1));
+
+            lock (_playbackLock)
+            {
+                _waveOut?.Stop();
+                _waveOut?.Dispose();
+                _waveOut = null;
+                _bufferedWaveProvider = null;
+            }
         }
     }
 

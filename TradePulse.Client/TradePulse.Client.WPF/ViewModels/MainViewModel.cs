@@ -762,7 +762,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void DeleteDirectContact(DirectContactViewModel? contact)
+    private async Task DeleteDirectContact(DirectContactViewModel? contact)
     {
         if (contact == null)
         {
@@ -1164,7 +1164,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void Call()
+    private async Task Call()
     {
         if (SelectedContact == null)
         {
@@ -1182,7 +1182,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartCallForContact(ContactViewModel? contact)
+    private async Task StartCallForContact(ContactViewModel? contact)
     {
         if (contact == null)
         {
@@ -1201,7 +1201,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartVideoCallForContact(ContactViewModel? contact)
+    private async Task StartVideoCallForContact(ContactViewModel? contact)
     {
         if (contact == null)
         {
@@ -1220,7 +1220,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartGroupCall()
+    private async Task StartGroupCall()
     {
         if (SelectedGroup == null)
         {
@@ -1238,7 +1238,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartBroadcast()
+    private async Task StartBroadcast()
     {
         if (SelectedGroup == null)
         {
@@ -1256,7 +1256,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void ToggleBroadcastMonitor()
+    private async Task ToggleBroadcastMonitor()
     {
         if (CurrentCall == null || CurrentCall.Type != CallType.Broadcast)
         {
@@ -1740,7 +1740,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void AnswerIncomingCall()
+    private async Task AnswerIncomingCall()
     {
         if (CurrentCall == null || CurrentCall.State != CallState.Ringing)
         {
@@ -1758,7 +1758,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void RejectIncomingCall()
+    private async Task RejectIncomingCall()
     {
         if (CurrentCall == null || CurrentCall.State != CallState.Ringing)
         {
@@ -1780,7 +1780,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void ToggleFavorite(ContactViewModel? contact)
+    private async Task ToggleFavorite(ContactViewModel? contact)
     {
         var targetContact = contact ?? SelectedContact;
         if (targetContact == null)
@@ -1817,7 +1817,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void Hangup()
+    private async Task Hangup()
     {
         if (CurrentCall == null)
         {
@@ -1835,7 +1835,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void Mute()
+    private async Task Mute()
     {
         if (CurrentCall == null)
         {
@@ -1875,7 +1875,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void Logout()
+    private async Task Logout()
     {
         try
         {
@@ -2067,7 +2067,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void ConfigureBroadcastSlot(BroadcastViewModel? broadcast)
+    private async Task ConfigureBroadcastSlot(BroadcastViewModel? broadcast)
     {
         if (broadcast == null) return;
 
@@ -2515,7 +2515,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void ToggleBroadcastMonitorForItem(BroadcastViewModel? broadcast)
+    private async Task ToggleBroadcastMonitorForItem(BroadcastViewModel? broadcast)
     {
         if (broadcast == null) return;
         if (!broadcast.IsConfigured || string.IsNullOrWhiteSpace(broadcast.Id)) return;
@@ -2544,14 +2544,14 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartBroadcastPTT(BroadcastViewModel? broadcast)
+    private async Task StartBroadcastPTT(BroadcastViewModel? broadcast)
     {
         if (broadcast == null || !broadcast.IsActive) return;
 
         try
         {
             // Backward-compatible stub: keep command but route to the new toggle-based behavior.
-            ToggleBroadcastPTTForItem(broadcast);
+            await ToggleBroadcastPTTForItem(broadcast);
         }
         catch (Exception ex)
         {
@@ -2560,7 +2560,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void ToggleBroadcastLatchForItem(BroadcastViewModel? broadcast)
+    private async Task ToggleBroadcastLatchForItem(BroadcastViewModel? broadcast)
     {
         if (broadcast == null) return;
         if (!broadcast.IsConfigured || string.IsNullOrWhiteSpace(broadcast.Id)) return;
@@ -2620,7 +2620,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void ToggleBroadcastPTTForItem(BroadcastViewModel? broadcast)
+    private async Task ToggleBroadcastPTTForItem(BroadcastViewModel? broadcast)
     {
         if (broadcast == null) return;
         if (!broadcast.IsConfigured || string.IsNullOrWhiteSpace(broadcast.Id)) return;
@@ -2632,7 +2632,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartGroupCallFromGrid(GroupCallSlotViewModel? slot)
+    private async Task StartGroupCallFromGrid(GroupCallSlotViewModel? slot)
     {
         if (slot == null) return;
         if (!slot.IsConfigured || string.IsNullOrWhiteSpace(slot.GroupId)) return;
@@ -2648,7 +2648,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartVoiceCall(DirectContactViewModel? contact)
+    private async Task StartVoiceCall(DirectContactViewModel? contact)
     {
         if (contact == null) return;
 
@@ -2708,7 +2708,7 @@ public partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async void StartVideoCall(DirectContactViewModel? contact)
+    private async Task StartVideoCall(DirectContactViewModel? contact)
     {
         if (contact == null) return;
 

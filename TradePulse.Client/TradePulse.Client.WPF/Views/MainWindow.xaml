@@ -728,9 +728,9 @@
                                                     <TextBlock FontSize="11"
                                                                Foreground="{StaticResource TeamsDarkTextTertiary}"
                                                                Margin="0,4,0,0">
-                                                        <Run Text="{Binding Username}"/>
+                                                        <Run Text="{Binding Username, Mode=OneWay}"/>
                                                         <Run Text="  "/>
-                                                        <Run Text="{Binding SipUri}"/>
+                                                        <Run Text="{Binding SipUri, Mode=OneWay}"/>
                                                     </TextBlock>
                                                 </StackPanel>
 
@@ -933,7 +933,7 @@
                                                                       Foreground="{StaticResource TeamsDarkTextTertiary}"
                                                                       Margin="0,0,0,2">
                                                                 <Run Text="Line "/>
-                                                                <Run Text="{Binding SlotIndex}"/>
+                                                                <Run Text="{Binding SlotIndex, Mode=OneWay}"/>
                                                             </TextBlock>
                                                             <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                                                 <TextBlock Text="{Binding Name}" 
@@ -1052,7 +1052,7 @@
                                                                    Margin="0,0,0,2"
                                                                    TextAlignment="Center">
                                                             <Run Text="Button "/>
-                                                            <Run Text="{Binding SlotIndex}"/>
+                                                            <Run Text="{Binding SlotIndex, Mode=OneWay}"/>
                                                         </TextBlock>
                                                         <TextBlock Text="{Binding Name}"
                                                                    FontWeight="400"

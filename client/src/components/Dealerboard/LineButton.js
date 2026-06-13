@@ -1,6 +1,6 @@
 import React from 'react';
 import styled, { keyframes, css } from 'styled-components';
-import { FiPhone, FiHeadphones, FiVolume2 } from 'react-icons/fi';
+import { FiPhone, FiHeadphones } from 'react-icons/fi';
 import {
   resolveAssignmentLabel,
   resolveAssignmentTypeLabel,
@@ -202,7 +202,6 @@ const LineButton = ({
   isRinging,
   isDisconnected,
   onLineClick,
-  onMonitorToggle,
   onAssignToggle,
   lines = [],
   speedDials = [],
@@ -210,11 +209,6 @@ const LineButton = ({
   const hasAssignment = !!assignment;
   const showModeToggles = hasAssignment && isPrivateWireAssignment(assignment) && !!line;
   const highlighted = isPrivate || isRinging || isBusy || isDisconnected || isMonitored || isAssigned;
-
-  const handleMonitor = (e) => {
-    e.stopPropagation();
-    onMonitorToggle(!isMonitored);
-  };
 
   const handleAssign = (e) => {
     e.stopPropagation();
@@ -268,29 +262,20 @@ const LineButton = ({
 
       {showModeToggles && (
         <ModeToggles>
+          {/* Single monitor/speaker toggle: adds the line to the speaker monitor
+              panel for live listen + push-to-talk. (Replaces the old redundant
+              MON + SPK pair — MON was listen-only with no audio.) */}
           <ModeButton
             type="button"
             $variant="monitor"
-            $active={isMonitored}
-            onClick={handleMonitor}
-            title={isMonitored ? 'Stop monitoring (listen only)' : 'Monitor live audio (listen only, no speaker panel)'}
-            aria-pressed={isMonitored}
+            $active={isAssigned}
+            onClick={handleAssign}
+            title={isAssigned ? 'Remove from speaker monitor' : 'Monitor on speaker (listen live — click panel slot to talk)'}
+            aria-pressed={isAssigned}
             aria-label="Monitor on speaker"
           >
             <FiHeadphones />
             MON
-          </ModeButton>
-          <ModeButton
-            type="button"
-            $variant="speaker"
-            $active={isAssigned}
-            onClick={handleAssign}
-            title={isAssigned ? 'Remove from speaker panel' : 'Assign to speaker panel (listen — click panel to talk)'}
-            aria-pressed={isAssigned}
-            aria-label="Assign to speaker"
-          >
-            <FiVolume2 />
-            SPK
           </ModeButton>
         </ModeToggles>
       )}

@@ -15,7 +15,9 @@ client/build/
 
 # Packaged / legacy trees (source of truth is server/ and client/src)
 dist/
+build/
 backup/
+recordings/
 
 # Runtime artifacts
 recordings/

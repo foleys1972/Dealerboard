@@ -89,24 +89,54 @@
                     <ToggleButton Content="DND"
                                   IsChecked="{Binding IsDndEnabled}"
                                   Command="{Binding ToggleDndCommand}"
-                                  Style="{StaticResource MaterialDesignFlatButton}"
                                   Foreground="{StaticResource TeamsDarkText}"
-                                  Margin="0,0,8,0"/>
+                                  Margin="0,0,8,0">
+                        <ToggleButton.Style>
+                            <Style TargetType="ToggleButton" BasedOn="{StaticResource MaterialDesignFlatButton}">
+                                <Style.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ToggleButton.Style>
+                    </ToggleButton>
 
                     <ToggleButton Content="CF Intercom"
                                   IsChecked="{Binding IsIntercomCallForwardEnabled}"
                                   Command="{Binding ToggleIntercomCallForwardCommand}"
-                                  Style="{StaticResource MaterialDesignFlatButton}"
                                   Foreground="{StaticResource TeamsDarkText}"
-                                  Margin="0,0,8,0"/>
+                                  Margin="0,0,8,0">
+                        <ToggleButton.Style>
+                            <Style TargetType="ToggleButton" BasedOn="{StaticResource MaterialDesignFlatButton}">
+                                <Style.Triggers>
+                                    <Trigger Property="IsChecked" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ToggleButton.Style>
+                    </ToggleButton>
 
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
                         <ToggleButton Content="CF Line"
                                       IsChecked="{Binding IsLineCallForwardEnabled}"
                                       Command="{Binding ToggleLineCallForwardCommand}"
-                                      Style="{StaticResource MaterialDesignFlatButton}"
                                       Foreground="{StaticResource TeamsDarkText}"
-                                      Margin="0,0,8,0"/>
+                                      Margin="0,0,8,0">
+                            <ToggleButton.Style>
+                                <Style TargetType="ToggleButton" BasedOn="{StaticResource MaterialDesignFlatButton}">
+                                    <Style.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                                            <Setter Property="Foreground" Value="White"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </ToggleButton.Style>
+                        </ToggleButton>
                         <ComboBox Width="160"
                                   ItemsSource="{Binding CallForwardLineOptions}"
                                   SelectedItem="{Binding SelectedCallForwardLine}"

@@ -216,18 +216,20 @@ const Login = () => {
   };
 
   const handleDemoLogin = async () => {
+    const demoUsername = 'admin';
+    const demoPassword = 'DevAdmin!2026';
     setFormData({
-      username: 'admin',
-      password: 'admin',
+      username: demoUsername,
+      password: demoPassword,
     });
-    
+
     setIsLoading(true);
     setError(null);
 
     try {
       const result = await login({
-        username: 'admin',
-        password: 'admin',
+        username: demoUsername,
+        password: demoPassword,
       });
       
       if (result.success) {
@@ -319,22 +321,26 @@ const Login = () => {
           </Form>
 
           <LoginFooter>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={handleDemoLogin}
-              disabled={isLoading}
-              style={{ width: '100%' }}
-            >
-              Try Admin Account
-            </Button>
-            <Spacer size="sm" />
+            {process.env.NODE_ENV === 'development' && (
+              <>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleDemoLogin}
+                  disabled={isLoading}
+                  style={{ width: '100%' }}
+                >
+                  Try Admin Account
+                </Button>
+                <Spacer size="sm" />
+              </>
+            )}
             <FooterText>
               Secure trading communications with WebRTC audio
               {process.env.NODE_ENV === 'development' && (
                 <>
                   <br />
-                  <small>Demo: admin/admin or trader1/REDACTED_ROTATED_SECRET</small>
+                  <small>Demo: admin/DevAdmin!2026 or trader1/DevTrader!2026</small>
                 </>
               )}
             </FooterText>

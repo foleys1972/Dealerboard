@@ -50,3 +50,8 @@ compliance/audit.log
 compliance/events.json
 logs/
 uc-sentinel/build/
+
+# Matrix federation config contains live tokens/DB passwords once filled in —
+# track only the .example templates (server/config/*.yaml.example).
+server/config/matrix-config.yaml
+server/config/trading-intercom-appservice.yaml

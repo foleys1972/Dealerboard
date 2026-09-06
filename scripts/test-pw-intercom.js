@@ -246,8 +246,8 @@ async function testIntercom(adminToken, traderToken, { video }) {
 
 (async () => {
   try {
-    const adminToken = await login('admin', 'admin');
-    const traderToken = await login('trader1', 'REDACTED_ROTATED_SECRET');
+    const adminToken = await login('admin', 'DevAdmin!2026');
+    const traderToken = await login('trader1', 'DevTrader!2026');
     console.log('Logged in admin + trader1');
 
     await testInternalMrd(adminToken);

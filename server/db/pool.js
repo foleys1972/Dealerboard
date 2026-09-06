@@ -37,7 +37,9 @@ const DEFAULT_CONFIG = {
   port: parseInt(process.env.POSTGRES_PORT || '5432', 10),
   database: process.env.POSTGRES_DB || 'trading_intercom',
   user: process.env.POSTGRES_USER || 'intercom_app',
-  password: process.env.POSTGRES_PASSWORD || 'intercom',
+  // No hardcoded fallback: production startup is hard-blocked by
+  // validateServerConfig() in utils/configValidation.js when this is unset.
+  password: process.env.POSTGRES_PASSWORD || 'intercom_dev_only',
   max: parseInt(process.env.POSTGRES_POOL_MAX || '20', 10),
   ssl: buildSslConfig(),
 };

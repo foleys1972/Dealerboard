@@ -56,6 +56,12 @@ function validateServerConfig() {
         errors.push(`AGENT_TOKEN must be at least ${MIN_SECRET_LENGTH} characters`);
       }
     }
+
+    if (!process.env.POSTGRES_PASSWORD) {
+      errors.push('POSTGRES_PASSWORD must be set in production');
+    } else if (process.env.POSTGRES_PASSWORD === 'intercom') {
+      errors.push('POSTGRES_PASSWORD must not be the known default value "intercom"');
+    }
   } else {
     if (!process.env.JWT_SECRET) {
       warnings.push(

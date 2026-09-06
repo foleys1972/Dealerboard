@@ -25,9 +25,9 @@ services:
     image: postgres:13
     container_name: trading-intercom-postgres
     environment:
-      POSTGRES_DB: synapse
-      POSTGRES_USER: synapse
-      POSTGRES_PASSWORD: REDACTED_ROTATED_SECRET
+      POSTGRES_DB: ${MATRIX_POSTGRES_DB:-synapse}
+      POSTGRES_USER: ${MATRIX_POSTGRES_USER:-synapse}
+      POSTGRES_PASSWORD: ${MATRIX_POSTGRES_PASSWORD:?Set MATRIX_POSTGRES_PASSWORD in your .env before running docker-compose}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -57,8 +57,8 @@ services:
     environment:
       - MATRIX_HOMESERVER_URL=http://synapse:8008
       - MATRIX_APPSERVICE_URL=http://matrix-appservice:9000
-      - MATRIX_APPSERVICE_TOKEN=REDACTED_ROTATED_SECRET
-      - MATRIX_HOMESERVER_TOKEN=REDACTED_ROTATED_SECRET
+      - MATRIX_APPSERVICE_TOKEN=${MATRIX_APPSERVICE_TOKEN:?Set MATRIX_APPSERVICE_TOKEN in your .env before running docker-compose}
+      - MATRIX_HOMESERVER_TOKEN=${MATRIX_HOMESERVER_TOKEN:?Set MATRIX_HOMESERVER_TOKEN in your .env before running docker-compose}
       - MATRIX_APPSERVICE_ID=trading-intercom
     depends_on:
       - synapse

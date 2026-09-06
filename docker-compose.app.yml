@@ -7,9 +7,9 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_DB: trading_intercom
-      POSTGRES_USER: intercom_app
-      POSTGRES_PASSWORD: intercom
+      POSTGRES_DB: ${POSTGRES_DB:-trading_intercom}
+      POSTGRES_USER: ${POSTGRES_USER:-intercom_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your .env before running docker-compose}
     volumes:
       - tradepulse_postgres_data:/var/lib/postgresql/data
     restart: unless-stopped

@@ -1,0 +1,33 @@
+# Matrix App Service Configuration for TradeCom
+# This configuration allows TradeCom to integrate with Matrix as an app service
+
+# App Service ID and URL
+id: "trading-intercom"
+url: "http://localhost:9000"
+as_token: "CHANGE_ME_generate_with_openssl_rand_hex_32"
+hs_token: "CHANGE_ME_generate_with_openssl_rand_hex_32"
+
+# Namespaces for users and rooms
+namespaces:
+  users:
+    - regex: "@trading-intercom_.*"
+      exclusive: true
+  rooms:
+    - regex: "#trading-group-.*"
+      exclusive: true
+    - regex: "#trading-broadcast-.*"
+      exclusive: true
+    - regex: "#trading-private-.*"
+      exclusive: true
+
+# Rate limiting
+rate_limited: false
+
+# Protocols
+protocols: []
+
+# Sender localpart
+sender_localpart: "trading-intercom-bot"
+
+# Delegate
+delegate: false

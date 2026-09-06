@@ -12,15 +12,7 @@
         Background="#1b1b1b"
         FontFamily="Segoe UI">
     <Window.Resources>
-        <!-- Reuse Teams dark theme colors from MainWindow -->
-        <SolidColorBrush x:Key="TeamsDarkBackground" Color="#1b1b1b"/>
-        <SolidColorBrush x:Key="TeamsDarkHeader" Color="#252423"/>
-        <SolidColorBrush x:Key="TeamsDarkSurface" Color="#2d2c2c"/>
-        <SolidColorBrush x:Key="TeamsDarkText" Color="#ffffff"/>
-        <SolidColorBrush x:Key="TeamsDarkTextSecondary" Color="#B3FFFFFF"/>
-        <SolidColorBrush x:Key="TeamsDarkBorder" Color="#14FFFFFF"/>
-        <SolidColorBrush x:Key="TeamsBlue" Color="#0078d4"/>
-        <SolidColorBrush x:Key="TeamsBlueHover" Color="#106ebe"/>
+        <!-- Colors come from the shared Themes/Colors.xaml merged in App.xaml. -->
 
         <Style x:Key="DarkComboBoxItemStyle" TargetType="ComboBoxItem">
             <Setter Property="Background" Value="{StaticResource TeamsDarkBackground}"/>

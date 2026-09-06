@@ -10,7 +10,7 @@
         Width="550"
         WindowStartupLocation="CenterScreen"
         ResizeMode="CanResize"
-        Background="#1b1b1b"
+        Background="{StaticResource TeamsDarkBackground}"
         FontFamily="Segoe UI">
     <Grid Margin="40">
         <Grid.RowDefinitions>
@@ -24,7 +24,7 @@
                                      Width="80" 
                                      Height="80" 
                                      HorizontalAlignment="Center"
-                                     Foreground="#0078d4"
+                                     Foreground="{StaticResource TeamsBlue}"
                                      Margin="0,0,0,15"/>
             <TextBlock Text="TradeCom" 
                        FontSize="42" 
@@ -35,7 +35,7 @@
             <TextBlock Text="Trading Communication Platform" 
                        FontSize="16"
                        HorizontalAlignment="Center"
-                       Foreground="#B3FFFFFF"
+                       Foreground="{StaticResource TeamsDarkTextSecondary}"
                        Opacity="0.9"/>
         </StackPanel>
 
@@ -46,7 +46,7 @@
                        FontSize="15"
                        FontWeight="SemiBold"
                        Margin="0,0,0,10"
-                       Foreground="#B3FFFFFF"/>
+                       Foreground="{StaticResource TeamsDarkTextSecondary}"/>
             <Grid Margin="0,0,0,25">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -59,9 +59,9 @@
                          FontSize="16"
                          Height="50"
                          Padding="12,0"
-                         Background="#2d2c2c"
-                         Foreground="#ffffff"
-                         BorderBrush="#26FFFFFF"
+                         Background="{StaticResource TeamsDarkSurface}"
+                         Foreground="{StaticResource TeamsDarkText}"
+                         BorderBrush="{StaticResource TeamsDarkBorderHover}"
                          Text="{Binding ServerUrl, UpdateSourceTrigger=PropertyChanged}"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8,0,0,0">
                     <Button Content="Test"
@@ -89,9 +89,9 @@
                      FontSize="18"
                      Height="55"
                      Padding="12,0"
-                     Background="#2d2c2c"
-                     Foreground="#ffffff"
-                     BorderBrush="#26FFFFFF"
+                     Background="{StaticResource TeamsDarkSurface}"
+                     Foreground="{StaticResource TeamsDarkText}"
+                     BorderBrush="{StaticResource TeamsDarkBorderHover}"
                      Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"/>
 
             <!-- Password -->
@@ -102,27 +102,22 @@
                         FontSize="18"
                         Height="55"
                         Padding="12,0"
-                        Background="#2d2c2c"
-                        Foreground="#ffffff"
-                        BorderBrush="#26FFFFFF"
+                        Background="{StaticResource TeamsDarkSurface}"
+                        Foreground="{StaticResource TeamsDarkText}"
+                        BorderBrush="{StaticResource TeamsDarkBorderHover}"
                         PasswordChanged="PasswordBox_PasswordChanged"/>
 
             <!-- Error Message -->
-            <Border Background="#FFEBEE"
-                    BorderBrush="#F44336"
-                    BorderThickness="1"
-                    CornerRadius="4"
-                    Padding="12,8"
+            <Border Style="{StaticResource TeamsErrorBannerStyle}"
                     Margin="0,0,0,15"
                     Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <StackPanel Orientation="Horizontal">
-                    <materialDesign:PackIcon Kind="AlertCircle" 
-                                           Foreground="#F44336"
+                    <materialDesign:PackIcon Kind="AlertCircle"
+                                           Foreground="{StaticResource TeamsErrorText}"
                                            VerticalAlignment="Center"
                                            Margin="0,0,8,0"/>
                     <TextBlock Text="{Binding ErrorMessage}"
-                               Foreground="#C62828"
-                               TextWrapping="Wrap"
+                               Style="{StaticResource TeamsErrorTextStyle}"
                                VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
@@ -130,7 +125,7 @@
             <!-- Status Message -->
             <TextBlock Text="{Binding StatusMessage}"
                        FontSize="15"
-                       Foreground="#0078d4"
+                       Foreground="{StaticResource TeamsBlue}"
                        HorizontalAlignment="Center"
                        Margin="0,0,0,20"
                        FontWeight="SemiBold"
@@ -172,7 +167,7 @@
                 </Ellipse>
                 <TextBlock Text="Ready to connect"
                            FontSize="14"
-                           Foreground="#80FFFFFF"
+                           Foreground="{StaticResource TeamsDarkTextTertiary}"
                            VerticalAlignment="Center"/>
             </StackPanel>
         </StackPanel>

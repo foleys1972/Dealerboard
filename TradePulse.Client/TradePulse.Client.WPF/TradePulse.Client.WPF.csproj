@@ -26,6 +26,18 @@
     <ProjectReference Include="..\TradePulse.Client.Core\TradePulse.Client.Core.csproj" />
   </ItemGroup>
 
+  <!-- Shared theme resource dictionaries: single source of truth lives in
+       ..\Themes, linked into both TradePulse.Client.WPF and
+       TradePulse.Dealerboard.Client rather than duplicated per project. -->
+  <ItemGroup>
+    <Page Include="..\Themes\Colors.xaml" Link="Themes\Colors.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="..\Themes\Controls.xaml" Link="Themes\Controls.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+
   <ItemGroup>
     <None Update="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -18,13 +18,7 @@
         UseLayoutRounding="True"
         FontFamily="Segoe UI">
     <Window.Resources>
-        <!-- Dark Theme Colors -->
-        <SolidColorBrush x:Key="DarkBackground" Color="#1b1b1b"/>
-        <SolidColorBrush x:Key="DarkSurface" Color="#2d2c2c"/>
-        <SolidColorBrush x:Key="DarkText" Color="#ffffff"/>
-        <SolidColorBrush x:Key="DarkTextSecondary" Color="#B3FFFFFF"/>
-        <SolidColorBrush x:Key="DarkBorder" Color="#14FFFFFF"/>
-        <SolidColorBrush x:Key="PrimaryBlue" Color="#0078d4"/>
+        <!-- Colors come from the shared Themes/Colors.xaml merged in App.xaml. -->
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <converters:ScaleToFitDownOnlyConverter x:Key="ScaleToFitDownOnlyConverter" />
     </Window.Resources>
@@ -41,8 +35,8 @@
 
         <!-- Header -->
         <Border Grid.Row="0" 
-                Background="{StaticResource DarkSurface}" 
-                BorderBrush="{StaticResource DarkBorder}" 
+                Background="{StaticResource TeamsDarkSurface}" 
+                BorderBrush="{StaticResource TeamsDarkBorder}" 
                 BorderThickness="0,0,0,1"
                 Padding="12">
             <Grid>
@@ -55,12 +49,12 @@
                     <TextBlock Text="TradeCom Dealerboard" 
                                FontSize="20" 
                                FontWeight="Bold"
-                               Foreground="{StaticResource DarkText}"
+                               Foreground="{StaticResource TeamsDarkText}"
                                VerticalAlignment="Center"
                                Margin="0,0,16,0"/>
                     <TextBlock Text="{Binding CurrentUsername, StringFormat='User: {0}'}" 
                                FontSize="14"
-                               Foreground="{StaticResource DarkTextSecondary}"
+                               Foreground="{StaticResource TeamsDarkTextSecondary}"
                                VerticalAlignment="Center"
                                Margin="0,0,16,0"/>
                     <Border CornerRadius="4"
@@ -76,7 +70,7 @@
                     <!-- Manual retry (Intercom parity) -->
                     <Button Content="Retry"
                             Command="{Binding RetryConnectionCommand}"
-                            Foreground="{StaticResource DarkText}"
+                            Foreground="{StaticResource TeamsDarkText}"
                             Margin="8,0,0,0">
                         <Button.Style>
                             <Style TargetType="Button" BasedOn="{StaticResource MaterialDesignFlatButton}">
@@ -96,14 +90,14 @@
                                   IsChecked="{Binding IsDndEnabled}"
                                   Command="{Binding ToggleDndCommand}"
                                   Style="{StaticResource MaterialDesignFlatButton}"
-                                  Foreground="{StaticResource DarkText}"
+                                  Foreground="{StaticResource TeamsDarkText}"
                                   Margin="0,0,8,0"/>
 
                     <ToggleButton Content="CF Intercom"
                                   IsChecked="{Binding IsIntercomCallForwardEnabled}"
                                   Command="{Binding ToggleIntercomCallForwardCommand}"
                                   Style="{StaticResource MaterialDesignFlatButton}"
-                                  Foreground="{StaticResource DarkText}"
+                                  Foreground="{StaticResource TeamsDarkText}"
                                   Margin="0,0,8,0"/>
 
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
@@ -111,7 +105,7 @@
                                       IsChecked="{Binding IsLineCallForwardEnabled}"
                                       Command="{Binding ToggleLineCallForwardCommand}"
                                       Style="{StaticResource MaterialDesignFlatButton}"
-                                      Foreground="{StaticResource DarkText}"
+                                      Foreground="{StaticResource TeamsDarkText}"
                                       Margin="0,0,8,0"/>
                         <ComboBox Width="160"
                                   ItemsSource="{Binding CallForwardLineOptions}"
@@ -124,19 +118,19 @@
                     <Button Content="Settings" 
                             Command="{Binding OpenSettingsCommand}"
                             Style="{StaticResource MaterialDesignFlatButton}"
-                            Foreground="{StaticResource DarkText}"
+                            Foreground="{StaticResource TeamsDarkText}"
                             Margin="0,0,8,0"/>
 
                     <Button Content="Exit"
                             Command="{Binding ExitCommand}"
                             Style="{StaticResource MaterialDesignFlatButton}"
-                            Foreground="{StaticResource DarkText}"
+                            Foreground="{StaticResource TeamsDarkText}"
                             Margin="0,0,8,0"/>
 
                     <Button Content="Logout" 
                             Command="{Binding LogoutCommand}"
                             Style="{StaticResource MaterialDesignRaisedButton}"
-                            Background="{StaticResource PrimaryBlue}"
+                            Background="{StaticResource TeamsBlue}"
                             Foreground="White"
                             Margin="0,0,0,0"/>
                 </StackPanel>
@@ -149,7 +143,7 @@
         <Grid x:Name="MainContentHost"
               Grid.Row="1"
               Margin="12"
-              Background="{StaticResource DarkBackground}"
+              Background="{StaticResource TeamsDarkBackground}"
               HorizontalAlignment="Stretch"
               VerticalAlignment="Stretch">
 
@@ -194,8 +188,8 @@
             <!-- Button grid + page header -->
             <Border x:Name="LineButtonModule"
                     Grid.Column="0" Grid.Row="0"
-                    Background="{StaticResource DarkSurface}"
-                    BorderBrush="{StaticResource DarkBorder}"
+                    Background="{StaticResource TeamsDarkSurface}"
+                    BorderBrush="{StaticResource TeamsDarkBorder}"
                     BorderThickness="1"
                     CornerRadius="4"
                     Padding="14"
@@ -245,11 +239,11 @@
                                    Text="Dealerboard"
                                    FontSize="16"
                                    FontWeight="SemiBold"
-                                   Foreground="{StaticResource DarkText}"
+                                   Foreground="{StaticResource TeamsDarkText}"
                                    VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                             <Button Content="◀" Command="{Binding PrevPageCommand}" Margin="0,0,8,0" />
-                            <TextBlock Text="{Binding CurrentPage, StringFormat=Page {0}}" Foreground="{StaticResource DarkTextSecondary}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <TextBlock Text="{Binding CurrentPage, StringFormat=Page {0}}" Foreground="{StaticResource TeamsDarkTextSecondary}" VerticalAlignment="Center" Margin="0,0,8,0" />
                             <Button Content="▶" Command="{Binding NextPageCommand}" />
                             <Button Content="⟳" Command="{Binding RefreshDealerboardCommand}" Margin="8,0,0,0" ToolTip="Refresh from Admin Portal" />
                         </StackPanel>
@@ -390,8 +384,8 @@
 
             <!-- Monitor Column -->
             <Border Grid.Column="1" Grid.Row="0" Grid.RowSpan="2"
-                    Background="{StaticResource DarkSurface}"
-                    BorderBrush="{StaticResource DarkBorder}"
+                    Background="{StaticResource TeamsDarkSurface}"
+                    BorderBrush="{StaticResource TeamsDarkBorder}"
                     BorderThickness="1"
                     CornerRadius="4"
                     Padding="14">
@@ -493,7 +487,7 @@
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Text="Notifications" Foreground="{StaticResource DarkTextSecondary}" FontWeight="SemiBold" Margin="0,0,0,10" />
+                        <TextBlock Grid.Row="0" Text="Notifications" Foreground="{StaticResource TeamsDarkTextSecondary}" FontWeight="SemiBold" Margin="0,0,0,10" />
                         <Border Grid.Row="1" Background="#1f1f1f" BorderBrush="#333333" BorderThickness="1" CornerRadius="6" Padding="10">
                             <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <ItemsControl ItemsSource="{Binding Notifications}">
@@ -510,8 +504,8 @@
 
                                                     <StackPanel Grid.Column="1">
                                                         <TextBlock Text="{Binding Title}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock Text="{Binding Message}" Foreground="{StaticResource DarkTextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                                        <TextBlock Text="{Binding TimestampText}" Foreground="{StaticResource DarkTextSecondary}" FontSize="10" Margin="0,6,0,0"/>
+                                                        <TextBlock Text="{Binding Message}" Foreground="{StaticResource TeamsDarkTextSecondary}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                        <TextBlock Text="{Binding TimestampText}" Foreground="{StaticResource TeamsDarkTextSecondary}" FontSize="10" Margin="0,6,0,0"/>
                                                     </StackPanel>
                                                 </Grid>
                                             </Border>
@@ -526,8 +520,8 @@
 
             <!-- Bottom Controls -->
             <Border Grid.Column="0" Grid.Row="1"
-                    Background="{StaticResource DarkSurface}"
-                    BorderBrush="{StaticResource DarkBorder}"
+                    Background="{StaticResource TeamsDarkSurface}"
+                    BorderBrush="{StaticResource TeamsDarkBorder}"
                     BorderThickness="1"
                     CornerRadius="4"
                     Padding="12"
@@ -563,7 +557,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Intercom Groups" Foreground="{StaticResource DarkTextSecondary}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="0" Text="Intercom Groups" Foreground="{StaticResource TeamsDarkTextSecondary}" FontWeight="SemiBold" VerticalAlignment="Center" />
                             </Grid>
                             <ItemsControl ItemsSource="{Binding IntercomGroupSlots}">
                                 <ItemsControl.ItemsPanel>
@@ -939,7 +933,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="Direct Contacts" Foreground="{StaticResource DarkTextSecondary}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="0" Text="Direct Contacts" Foreground="{StaticResource TeamsDarkTextSecondary}" FontWeight="SemiBold" VerticalAlignment="Center" />
                                 <Button Grid.Column="1"
                                         Command="{Binding AddDirectContactCommand, ElementName=RootWindow}"
                                         ToolTip="Add direct contact by username"
@@ -1035,8 +1029,8 @@
                     </Border>
 
                     <Border Grid.Column="4" Grid.Row="0" Grid.RowSpan="2"
-                            Background="{StaticResource DarkSurface}"
-                            BorderBrush="{StaticResource DarkBorder}"
+                            Background="{StaticResource TeamsDarkSurface}"
+                            BorderBrush="{StaticResource TeamsDarkBorder}"
                             BorderThickness="1"
                             CornerRadius="6"
                             Padding="12">
@@ -1046,7 +1040,7 @@
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
 
-                            <TextBlock Grid.Row="0" Text="Contacts" Foreground="{StaticResource DarkTextSecondary}" FontWeight="SemiBold" Margin="0,0,0,10" />
+                            <TextBlock Grid.Row="0" Text="Contacts" Foreground="{StaticResource TeamsDarkTextSecondary}" FontWeight="SemiBold" Margin="0,0,0,10" />
                             <Border Grid.Row="1" Background="#1f1f1f" BorderBrush="#333333" BorderThickness="1" CornerRadius="6" Padding="6">
                                 <StackPanel>
                                     <TextBox Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}" Height="28" Margin="0,0,0,10" Background="#111111" Foreground="White" BorderBrush="#333333" />
@@ -1108,7 +1102,7 @@
                                                                         <TextBlock Text="{Binding Name}" />
                                                                     </TextBlock.ToolTip>
                                                                 </TextBlock>
-                                                                <TextBlock Foreground="{StaticResource DarkTextSecondary}" FontSize="10" TextTrimming="None" TextWrapping="NoWrap">
+                                                                <TextBlock Foreground="{StaticResource TeamsDarkTextSecondary}" FontSize="10" TextTrimming="None" TextWrapping="NoWrap">
                                                                     <TextBlock.ToolTip>
                                                                         <TextBlock Text="{Binding Username}" />
                                                                     </TextBlock.ToolTip>
@@ -1183,13 +1177,13 @@
 
         <!-- Footer -->
         <Border Grid.Row="2" 
-                Background="{StaticResource DarkSurface}" 
-                BorderBrush="{StaticResource DarkBorder}" 
+                Background="{StaticResource TeamsDarkSurface}" 
+                BorderBrush="{StaticResource TeamsDarkBorder}" 
                 BorderThickness="0,1,0,0"
                 Padding="12,6">
             <TextBlock Text="TradeCom Dealerboard" 
                        FontSize="12"
-                       Foreground="{StaticResource DarkTextSecondary}"
+                       Foreground="{StaticResource TeamsDarkTextSecondary}"
                        HorizontalAlignment="Center"/>
         </Border>
     </Grid>

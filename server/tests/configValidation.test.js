@@ -13,6 +13,7 @@ const ENV_KEYS = [
   'FEDERATION_SECRET',
   'ENABLE_LOCAL_AGENT',
   'AGENT_TOKEN',
+  'POSTGRES_PASSWORD',
 ];
 
 function withEnv(env, fn) {
@@ -65,9 +66,27 @@ test('production rejects weak JWT_SECRET', () => {
 
 test('production accepts strong JWT_SECRET', () => {
   withEnv(
-    { NODE_ENV: 'production', JWT_SECRET: 'a'.repeat(32) },
+    { NODE_ENV: 'production', JWT_SECRET: 'a'.repeat(32), POSTGRES_PASSWORD: 'a'.repeat(20) },
     ({ validateServerConfig }) => {
       validateServerConfig();
+    }
+  );
+});
+
+test('production rejects missing POSTGRES_PASSWORD', () => {
+  withEnv(
+    { NODE_ENV: 'production', JWT_SECRET: 'a'.repeat(32) },
+    ({ validateServerConfig }) => {
+      assert.throws(() => validateServerConfig(), /POSTGRES_PASSWORD/);
+    }
+  );
+});
+
+test('production rejects default POSTGRES_PASSWORD', () => {
+  withEnv(
+    { NODE_ENV: 'production', JWT_SECRET: 'a'.repeat(32), POSTGRES_PASSWORD: 'intercom' },
+    ({ validateServerConfig }) => {
+      assert.throws(() => validateServerConfig(), /POSTGRES_PASSWORD/);
     }
   );
 });

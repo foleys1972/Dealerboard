@@ -1,10 +1,22 @@
+# Kept out of the main CI workflow's default PR/push triggers because it
+# spins up a real ephemeral Postgres service and boots the full server —
+# meaningfully slower than the unit-test job in ci.yml. To still catch
+# regressions where they're most likely, it also runs on pull requests that
+# touch the subscriber API surface or the DB layer it depends on.
 name: Subscriber API (integration)
 
 on:
   workflow_dispatch:
   schedule:
-    # Nightly optional smoke — disable by removing if too flaky
+    # Weekly smoke — disable by removing if too flaky
     - cron: '0 6 * * 1'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'server/routes/subscriberApi/**'
+      - 'server/routes/subscriberApiRoutes.js'
+      - 'server/db/**'
+      - 'server/services/databaseService.js'
 
 jobs:
   subscriber-api:

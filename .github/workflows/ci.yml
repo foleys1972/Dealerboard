@@ -23,6 +23,13 @@ jobs:
       - name: Server unit tests
         run: npm test
 
+      # Non-blocking for now: the existing dependency tree already has a
+      # backlog of high/critical advisories (mostly transitive, behind a
+      # breaking matrix-appservice-bridge major-version bump). Report new
+      # findings without redenning every PR until that backlog is cleared.
+      - name: Dependency vulnerability audit (report only)
+        run: npm audit --audit-level=high || echo "::warning::npm audit found high/critical advisories — see job log"
+
   client-build:
     runs-on: ubuntu-latest
     steps:
@@ -44,5 +51,9 @@ jobs:
           CI: true
           DISABLE_ESLINT_PLUGIN: false
         run: npm run build
+
+      - name: Dependency vulnerability audit (report only)
+        working-directory: client
+        run: npm audit --audit-level=high || echo "::warning::npm audit found high/critical advisories — see job log"
 
   # PR/push: unit tests only. Full subscriber HTTP suite: see subscriber-api.yml

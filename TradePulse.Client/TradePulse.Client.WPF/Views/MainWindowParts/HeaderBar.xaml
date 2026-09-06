@@ -1,0 +1,150 @@
+<Border x:Class="TradePulse.Client.WPF.Views.MainWindowParts.HeaderBar"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        d:DesignWidth="1400"
+        Background="{StaticResource TeamsDarkHeader}"
+        BorderBrush="{StaticResource TeamsDarkBorder}"
+        BorderThickness="0,0,0,1"
+        Padding="12,10">
+    <!--
+        Top app bar: logo/title, connection status, and window-level actions
+        (DND, Forward, Conference, Settings, Logout, Exit). DataContext is
+        inherited from MainWindow (MainViewModel) — no code-behind here.
+    -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Logo and Title -->
+        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+            <materialDesign:PackIcon Kind="Phone"
+                                   Width="20"
+                                   Height="20"
+                                   Foreground="White"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"/>
+            <TextBlock Text="TradeCom"
+                       FontSize="18"
+                       FontWeight="600"
+                       Foreground="White"
+                       VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Connection Status -->
+        <StackPanel Grid.Column="1"
+                   Orientation="Horizontal"
+                   HorizontalAlignment="Right"
+                   VerticalAlignment="Center"
+                   Margin="0,0,20,0">
+            <Ellipse Width="10"
+                     Height="10"
+                     Margin="0,0,8,0"
+                     VerticalAlignment="Center"
+                     Fill="{Binding IsConnected, Converter={StaticResource BooleanToColorConverter}}"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="{Binding ConnectionStatus}"
+                       VerticalAlignment="Center"
+                       Foreground="White"
+                       FontSize="14"
+                       FontWeight="400"
+                       Margin="0,0,8,0"/>
+                <Button Content="Retry"
+                        Style="{StaticResource TeamsButtonStyle}"
+                        Command="{Binding RetrySocketConnectionCommand}"
+                        Padding="6,4"
+                        FontSize="12"
+                        Visibility="{Binding IsConnected, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
+                        ToolTip="Retry Socket.IO connection"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Action Buttons -->
+        <StackPanel Grid.Column="2"
+                   Orientation="Horizontal"
+                   VerticalAlignment="Center">
+            <Button Command="{Binding ToggleDndCommand}"
+                    Padding="10,6"
+                    Margin="0,0,8,0"
+                    ToolTip="Toggle Do Not Disturb (auto-reject direct calls)">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsDndEnabled}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="MinusCircle" Width="16" Height="16" Foreground="White" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="DND" Foreground="White" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <Button Style="{StaticResource TeamsButtonStyle}"
+                    Command="{Binding ConfigureCallForwardCommand}"
+                    Margin="0,0,8,0"
+                    ToolTip="Configure immediate call forward (direct calls)">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="PhoneForward" Width="16" Height="16" Foreground="White" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Forward" Foreground="White" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <Button Style="{StaticResource TeamsButtonStyle}"
+                    Command="{Binding StartConferenceCommand}"
+                    Margin="0,0,8,0"
+                    ToolTip="Start 1:N conference (REMAIN_GROUP)">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="AccountMultiple" Width="16" Height="16" Foreground="White" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Conference" Foreground="White" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <Button Content="Settings"
+                    Style="{StaticResource TeamsButtonStyle}"
+                    Command="{Binding SettingsCommand}"
+                    Margin="0,0,8,0"/>
+            <Button Style="{StaticResource TeamsButtonStyle}"
+                    Command="{Binding LogoutCommand}"
+                    ToolTip="Logout">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="ExitToApp"
+                                           Width="16"
+                                           Height="16"
+                                           Foreground="White"
+                                           Margin="0,0,6,0"
+                                           VerticalAlignment="Center"/>
+                    <TextBlock Text="Logout"
+                               Foreground="White"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+
+            <Button Style="{StaticResource TeamsButtonStyle}"
+                    Command="{Binding ExitCommand}"
+                    Margin="8,0,0,0"
+                    ToolTip="Exit">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="CloseCircle"
+                                           Width="16"
+                                           Height="16"
+                                           Foreground="White"
+                                           Margin="0,0,6,0"
+                                           VerticalAlignment="Center"/>
+                    <TextBlock Text="Exit"
+                               Foreground="White"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Border>

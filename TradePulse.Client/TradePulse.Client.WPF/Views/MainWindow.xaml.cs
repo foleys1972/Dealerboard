@@ -18,7 +18,7 @@ public partial class MainWindow : Window
             var mediaEngine = App.GetService<IWebMediaEngineService>();
             if (mediaEngine is WebView2MediaEngineService wv2Engine)
             {
-                wv2Engine.AttachWebView2Host(VideoWebView);
+                wv2Engine.AttachWebView2Host(ContactsPanelControl.VideoWebView);
             }
         }
         catch

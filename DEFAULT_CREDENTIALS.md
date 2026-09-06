@@ -8,10 +8,10 @@ are likewise only rendered when `NODE_ENV=development`.
 
 ## Dev Bootstrap Accounts
 
-| Username | Password        | Role           |
-|----------|-----------------|----------------|
-| `admin`  | `DevAdmin!2026`  | platform_admin |
-| `trader1`| `DevTrader!2026` | user           |
+| Username | Password    | Role           |
+|----------|-------------|----------------|
+| `admin`  | `admin`     | platform_admin |
+| `trader1`| `trader123` | user           |
 
 These values live in `server/services/auth/sessionStore.js` — change them there if you rotate
 again, and update `scripts/test-pw-intercom.js` / `scripts/intercom-smoke.js` (manual dev smoke

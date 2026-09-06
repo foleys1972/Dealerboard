@@ -20,7 +20,7 @@ function api(path, token) {
 }
 
 (async () => {
-  const { token, user } = await login('trader1','DevTrader!2026');
+  const { token, user } = await login('trader1','trader123');
   console.log('1. LOGIN: user=%s id=%s role=%s', user.username, user.id, user.role);
 
   // Dealerboard config (exercises auto-seed)

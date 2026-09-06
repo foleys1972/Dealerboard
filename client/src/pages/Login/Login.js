@@ -217,7 +217,7 @@ const Login = () => {
 
   const handleDemoLogin = async () => {
     const demoUsername = 'admin';
-    const demoPassword = 'DevAdmin!2026';
+    const demoPassword = 'admin';
     setFormData({
       username: demoUsername,
       password: demoPassword,
@@ -340,7 +340,7 @@ const Login = () => {
               {process.env.NODE_ENV === 'development' && (
                 <>
                   <br />
-                  <small>Demo: admin/DevAdmin!2026 or trader1/DevTrader!2026</small>
+                  <small>Demo: admin/admin or trader1/trader123</small>
                 </>
               )}
             </FooterText>

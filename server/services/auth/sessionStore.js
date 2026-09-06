@@ -66,8 +66,8 @@ async function syncUsersToLocalStorage() {
 
 // Dev-only bootstrap accounts. Never created in production: gated by
 // allowBootstrapUsers() below, which is hard-false when NODE_ENV=production.
-const adminPasswordHash = bcrypt.hashSync('DevAdmin!2026', 10);
-const traderPasswordHash = bcrypt.hashSync('DevTrader!2026', 10);
+const adminPasswordHash = bcrypt.hashSync('admin', 10);
+const traderPasswordHash = bcrypt.hashSync('trader123', 10);
 
 const defaultUsers = [
   {

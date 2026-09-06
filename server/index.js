@@ -227,6 +227,23 @@ class TradingIntercomServer {
 
       setupRoutes(this.app);
 
+      // Global error handler. Must be registered after all routes/middleware
+      // so it catches errors passed to next(err) from any handler.
+      this.app.use((err, req, res, next) => {
+        if (res.headersSent) {
+          return next(err);
+        }
+        logger.error('Unhandled route error', {
+          message: err?.message,
+          stack: err?.stack,
+          path: req?.originalUrl,
+          method: req?.method,
+        });
+        res.status(err?.status || err?.statusCode || 500).json({
+          error: 'Internal server error',
+        });
+      });
+
       await initHaAndSubscribers(this);
       wireSocketAndSip(this);
       await initBackgroundJobs(this);
@@ -415,7 +432,8 @@ class TradingIntercomServer {
     });
     this.app.use('/api/auth/login', loginLimiter);
 
-    // General API rate limiting (production only).
+    // General API rate limiting. Active in every environment by default;
+    // set API_RATE_LIMIT_DISABLED=true to opt out (e.g. for load testing).
     // Note: under an app.use('/api/', ...) mount, req.path has the mount
     // stripped, so auth paths start with '/auth/'.
     const limiter = rateLimit({
@@ -426,7 +444,7 @@ class TradingIntercomServer {
       message: { error: 'Too many requests from this IP, please try again later.' },
     });
 
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.API_RATE_LIMIT_DISABLED !== 'true') {
       this.app.use('/api/', (req, res, next) => {
         // Login already has its own stricter limiter
         if (req.path.startsWith('/auth/login')) {
@@ -588,6 +606,16 @@ class TradingIntercomServer {
         this._shutdownHandlersRegistered = true;
         process.once('SIGTERM', () => this.shutdown());
         process.once('SIGINT', () => this.shutdown());
+        // Crash guards: log and attempt a graceful shutdown instead of an
+        // uncontrolled process crash (Node's default for these events).
+        process.on('uncaughtException', (error) => {
+          logger.error('Uncaught exception - shutting down', error);
+          this.shutdown();
+        });
+        process.on('unhandledRejection', (reason) => {
+          logger.error('Unhandled promise rejection - shutting down', reason);
+          this.shutdown();
+        });
       }
       
     } catch (error) {
@@ -602,7 +630,15 @@ class TradingIntercomServer {
     }
     this._shutdownInProgress = true;
     logger.info('Shutting down server gracefully...');
-    
+
+    // If graceful shutdown hangs (e.g. a connection never closes), force exit
+    // rather than leaving a zombie process.
+    const forceExitTimer = setTimeout(() => {
+      logger.error('Graceful shutdown timed out after 10s - forcing exit');
+      process.exit(1);
+    }, 10000);
+    forceExitTimer.unref();
+
     try {
       if (this.mediaSoupWorker) {
         await this.mediaSoupWorker.close();
@@ -631,10 +667,12 @@ class TradingIntercomServer {
       }
       
       this.server.close(() => {
+        clearTimeout(forceExitTimer);
         logger.info('Server shutdown complete');
         process.exit(0);
       });
     } catch (error) {
+      clearTimeout(forceExitTimer);
       logger.error('Error during shutdown:', error);
       process.exit(1);
     }

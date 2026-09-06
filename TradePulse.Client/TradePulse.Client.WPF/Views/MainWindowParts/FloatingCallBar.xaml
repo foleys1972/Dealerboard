@@ -1,0 +1,128 @@
+<Border x:Class="TradePulse.Client.WPF.Views.MainWindowParts.FloatingCallBar"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        d:DesignWidth="1400"
+        Background="{StaticResource TeamsDarkHeader}"
+        BorderBrush="{StaticResource TeamsDarkBorder}"
+        BorderThickness="0,1,0,0"
+        Padding="12,10"
+        Visibility="{Binding IsCallActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+    <!--
+        Bottom bar shown while a call is active: status, duration, and call
+        controls (end/PTT/latch/mute). DataContext inherited from MainWindow
+        (MainViewModel). PTT handlers get their own copy here (same pattern
+        as ContactsPanel's in-call controls) since they only touch
+        DataContext, which resolves the same regardless of host.
+    -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Call Status Indicator -->
+        <Ellipse Grid.Column="0"
+                Width="10"
+                Height="10"
+                Margin="0,0,12,0"
+                VerticalAlignment="Center"
+                Fill="{StaticResource TeamsGreen}"/>
+
+        <!-- Call Info -->
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+            <TextBlock Text="{Binding CallStatus}"
+                       FontSize="14"
+                       FontWeight="600"
+                       Foreground="{StaticResource TeamsDarkText}"
+                       Margin="0,0,0,2"/>
+            <TextBlock FontSize="12"
+                       Foreground="{StaticResource TeamsDarkTextTertiary}">
+                <TextBlock.Text>
+                    <MultiBinding StringFormat="{}{0} • {1}">
+                        <Binding Path="CallDuration"/>
+                        <Binding Path="CurrentCall.Type"/>
+                    </MultiBinding>
+                </TextBlock.Text>
+            </TextBlock>
+        </StackPanel>
+
+        <!-- Call Controls -->
+        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+            <Button Style="{StaticResource TeamsDangerButtonStyle}"
+                    Command="{Binding HangupCommand}"
+                    Margin="0,0,8,0"
+                    Padding="10,6"
+                    ToolTip="End Call">
+                <StackPanel Orientation="Horizontal">
+                    <materialDesign:PackIcon Kind="PhoneHangup" Width="16" Height="16" Foreground="White" Margin="0,0,6,0"/>
+                    <TextBlock Text="End" Foreground="White" FontSize="12" FontWeight="700"/>
+                </StackPanel>
+            </Button>
+
+            <Button Margin="0,0,8,0"
+                    Padding="10,6"
+                    ToolTip="Push To Talk"
+                    PreviewMouseLeftButtonDown="PttButton_PreviewMouseLeftButtonDown"
+                    PreviewMouseLeftButtonUp="PttButton_PreviewMouseLeftButtonUp">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource TeamsPrimaryButtonStyle}">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding CurrentCall.Type}" Value="Direct">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsPttTransmitting}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <TextBlock Text="PTT" Foreground="White" FontSize="12" FontWeight="700"/>
+            </Button>
+
+            <Button Command="{Binding ToggleLatchCommand}"
+                    Margin="0,0,8,0"
+                    Padding="10,6"
+                    ToolTip="Latch">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                        <Setter Property="Visibility" Value="Collapsed"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding CurrentCall.Type}" Value="Direct">
+                                <Setter Property="Visibility" Value="Visible"/>
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsPttLatched}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <TextBlock Text="Latch" Foreground="White" FontSize="12" FontWeight="700"/>
+            </Button>
+
+            <Button Command="{Binding MuteCommand}"
+                    Margin="0,0,8,0"
+                    Padding="10,6"
+                    ToolTip="Mute">
+                <Button.Style>
+                    <Style TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding CurrentCall.IsMuted}" Value="True">
+                                <Setter Property="Background" Value="{StaticResource TeamsRed}"/>
+                                <Setter Property="BorderBrush" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                <materialDesign:PackIcon Kind="MicrophoneOff" Width="18" Height="18" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+            </Button>
+        </StackPanel>
+    </Grid>
+</Border>

@@ -1,0 +1,134 @@
+<Border x:Class="TradePulse.Client.WPF.Views.MainWindowParts.GroupCallsPanel"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        d:DesignWidth="380"
+        Style="{StaticResource SectionStyle}">
+    <!--
+        Group call quick-dial grid plus the notifications feed underneath.
+        DataContext inherited from MainWindow (MainViewModel); each group
+        call tile's DataContext is a GroupCallSlotViewModel.
+    -->
+    <StackPanel>
+        <Grid Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <materialDesign:PackIcon Kind="Users" Width="16" Height="16" Foreground="{StaticResource TeamsDarkTextSecondary}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                <TextBlock Text="GROUP CALLS" Style="{StaticResource SectionTitleStyle}"/>
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto">
+            <ItemsControl ItemsSource="{Binding GroupCalls}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Columns="2"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                        <Border BorderBrush="{StaticResource TeamsDarkBorder}"
+                                BorderThickness="1"
+                                CornerRadius="4"
+                                Padding="12"
+                                Margin="0,0,6,6"
+                                Cursor="Hand"
+                                MouseLeftButtonDown="GroupCallItem_MouseLeftButtonDown">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{StaticResource TeamsDarkSurface}"/>
+                                    <Setter Property="Opacity" Value="1"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsConfigured}" Value="False">
+                                            <Setter Property="Opacity" Value="0.55"/>
+                                            <Setter Property="Cursor" Value="Arrow"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <TextBlock FontSize="11"
+                                           Foreground="{StaticResource TeamsDarkTextTertiary}"
+                                           Margin="0,0,0,2"
+                                           TextAlignment="Center">
+                                    <Run Text="Button "/>
+                                    <Run Text="{Binding SlotIndex, Mode=OneWay}"/>
+                                </TextBlock>
+                                <TextBlock Text="{Binding Name}"
+                                           FontWeight="400"
+                                           FontSize="13"
+                                           Foreground="{StaticResource TeamsDarkText}"
+                                           TextAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+                </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <Border Background="{StaticResource TeamsDarkSurface}"
+                BorderBrush="{StaticResource TeamsDarkBorder}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Padding="12"
+                Margin="0,12,0,0">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                    <materialDesign:PackIcon Kind="Bell" Width="16" Height="16" Foreground="{StaticResource TeamsDarkTextSecondary}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="NOTIFICATIONS" Style="{StaticResource SectionTitleStyle}"/>
+                </StackPanel>
+
+                <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Notifications}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource TeamsDarkSurface}"
+                                        BorderBrush="{StaticResource TeamsDarkBorder}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Padding="10"
+                                        Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <materialDesign:PackIcon Grid.Column="0"
+                                                                Kind="{Binding IconKind}"
+                                                                Width="18"
+                                                                Height="18"
+                                                                Foreground="{StaticResource TeamsBlue}"
+                                                                Margin="0,0,10,0"
+                                                                VerticalAlignment="Top"/>
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding Title}"
+                                                       FontWeight="700"
+                                                       FontSize="12"
+                                                       Foreground="{StaticResource TeamsDarkText}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding Message}"
+                                                       FontSize="11"
+                                                       Foreground="{StaticResource TeamsDarkTextSecondary}"
+                                                       TextWrapping="Wrap"
+                                                       Margin="0,4,0,0"/>
+                                            <TextBlock Text="{Binding TimestampText}"
+                                                       FontSize="10"
+                                                       Foreground="{StaticResource TeamsDarkTextTertiary}"
+                                                       Margin="0,6,0,0"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</Border>

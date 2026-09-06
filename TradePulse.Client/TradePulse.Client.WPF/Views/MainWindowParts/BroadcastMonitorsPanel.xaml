@@ -1,0 +1,176 @@
+<Border x:Class="TradePulse.Client.WPF.Views.MainWindowParts.BroadcastMonitorsPanel"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        d:DesignWidth="380"
+        Style="{StaticResource SectionStyle}">
+    <!--
+        Broadcast monitor lines: mute/monitor toggle, PTT, latch, slot
+        assignment. DataContext is inherited from MainWindow (MainViewModel);
+        each list item's DataContext is a BroadcastViewModel.
+
+        BroadcastPttButtonStyle/BroadcastLatchButtonStyle are feature-
+        specific to this panel, so they live in this control's own
+        Resources rather than a shared dictionary (matches how they were
+        already scoped to MainWindow.Resources before extraction — moving
+        them here instead of leaving them in MainWindow.xaml because a
+        Window's local Resources aren't reliably visible to a separately
+        compiled UserControl's StaticResource lookups).
+    -->
+    <Border.Resources>
+        <Style x:Key="BroadcastPttButtonStyle" TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+            <Setter Property="Background" Value="#26FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource TeamsDarkBorderHover}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsPttTransmitting}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource TeamsGreen}"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsPttLatched}" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource TeamsBlueBorder}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="BroadcastLatchButtonStyle" TargetType="Button" BasedOn="{StaticResource TeamsButtonStyle}">
+            <Setter Property="Background" Value="#26FFFFFF"/>
+            <Setter Property="BorderBrush" Value="{StaticResource TeamsDarkBorderHover}"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsPttLatched}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource TeamsBlue}"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </Border.Resources>
+
+    <StackPanel>
+        <Grid Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <materialDesign:PackIcon Kind="Radio" Width="16" Height="16" Foreground="{StaticResource TeamsDarkTextSecondary}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                <TextBlock Text="BROADCAST MONITORS" Style="{StaticResource SectionTitleStyle}"/>
+            </StackPanel>
+            <Border Grid.Column="1"
+                    Background="{StaticResource TeamsBlueTransparent}"
+                    BorderBrush="{StaticResource TeamsBlueBorder}"
+                    BorderThickness="1"
+                    CornerRadius="10"
+                    Padding="6,2"
+                    VerticalAlignment="Center">
+                <TextBlock Text="{Binding ActiveBroadcastCount, StringFormat='{}{0} active'}"
+                          FontSize="11"
+                          Foreground="{StaticResource TeamsBlue}"
+                          VerticalAlignment="Center"/>
+            </Border>
+        </Grid>
+
+        <ItemsControl ItemsSource="{Binding Broadcasts}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border BorderBrush="{StaticResource TeamsDarkBorder}"
+                            BorderThickness="1"
+                            CornerRadius="4"
+                            Padding="10"
+                            Margin="0,0,0,8"
+                            Cursor="Hand">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="{StaticResource TeamsDarkSurface}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                        <Setter Property="Background" Value="{StaticResource TeamsBlueTransparentLight}"/>
+                                        <Setter Property="BorderBrush" Value="{StaticResource TeamsBlueBorder}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock FontSize="11"
+                                              Foreground="{StaticResource TeamsDarkTextTertiary}"
+                                              Margin="0,0,0,2">
+                                        <Run Text="Line "/>
+                                        <Run Text="{Binding SlotIndex, Mode=OneWay}"/>
+                                    </TextBlock>
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <TextBlock Text="{Binding Name}"
+                                                  FontWeight="400"
+                                                  FontSize="13"
+                                                  Foreground="{StaticResource TeamsDarkText}"
+                                                  VerticalAlignment="Center"/>
+
+                                        <Border Background="{StaticResource TeamsGreen}"
+                                                CornerRadius="8"
+                                                Padding="6,1"
+                                                Margin="8,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Visibility="{Binding IsVoxActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Text="AUDIO"
+                                                      FontSize="10"
+                                                      FontWeight="600"
+                                                      Foreground="White"
+                                                      VerticalAlignment="Center"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <TextBlock Text="{Binding ListenerCount, StringFormat='{}{0} monitoring'}"
+                                              FontSize="11"
+                                              Foreground="{StaticResource TeamsDarkTextTertiary}"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Vertical" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                    <ToggleButton IsChecked="{Binding IsActive, Mode=OneWay}"
+                                                 Command="{Binding DataContext.ToggleBroadcastMonitorForItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                 CommandParameter="{Binding}"
+                                                 Style="{StaticResource TeamsToggleSwitchStyle}"
+                                                 Margin="0,0,0,6"
+                                                 IsEnabled="{Binding IsConfigured}"/>
+                                    <Button Content="Assign"
+                                            Style="{StaticResource TeamsButtonStyle}"
+                                            Padding="6,4"
+                                            FontSize="12"
+                                            Command="{Binding DataContext.ConfigureBroadcastSlotCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"/>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0,8,0,0" Visibility="{Binding IsActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Button Grid.Column="0"
+                                        Content="PTT"
+                                        Style="{StaticResource BroadcastPttButtonStyle}"
+                                        PreviewMouseLeftButtonDown="BroadcastPttButton_PreviewMouseLeftButtonDown"
+                                        PreviewMouseLeftButtonUp="BroadcastPttButton_PreviewMouseLeftButtonUp"
+                                        ToolTip="PTT (green when transmitting)"/>
+
+                                <Button Grid.Column="1"
+                                        Content="Latch"
+                                        Style="{StaticResource BroadcastLatchButtonStyle}"
+                                        Margin="8,0,0,0"
+                                        Padding="10,6"
+                                        Command="{Binding DataContext.ToggleBroadcastLatchForItemCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip="Toggle latch mode"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</Border>

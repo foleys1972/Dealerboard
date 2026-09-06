@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Input;
 using TradePulse.Client.Core.Services;
 using TradePulse.Client.WPF.Services;
 using TradePulse.Client.WPF.ViewModels;
@@ -33,72 +32,4 @@ public partial class MainWindow : Window
             this.Close();
         };
     }
-
-    private void GroupCallItem_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is FrameworkElement element && element.DataContext is GroupCallSlotViewModel slot)
-        {
-            var viewModel = DataContext as MainViewModel;
-            viewModel?.StartGroupCallFromGridCommand.Execute(slot);
-        }
-    }
-
-    private void PttButton_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (DataContext is MainViewModel vm)
-        {
-            if (vm.PttDownCommand.CanExecute(null))
-            {
-                vm.PttDownCommand.Execute(null);
-            }
-        }
-    }
-
-    private void PttButton_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (DataContext is MainViewModel vm)
-        {
-            if (vm.PttUpCommand.CanExecute(null))
-            {
-                vm.PttUpCommand.Execute(null);
-            }
-        }
-    }
-
-    private void BroadcastPttButton_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (DataContext is not MainViewModel vm)
-        {
-            return;
-        }
-
-        if (sender is not FrameworkElement element || element.DataContext is not BroadcastViewModel broadcast)
-        {
-            return;
-        }
-
-        if (vm.BroadcastPttDownCommand.CanExecute(broadcast))
-        {
-            vm.BroadcastPttDownCommand.Execute(broadcast);
-        }
-    }
-
-    private void BroadcastPttButton_PreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (DataContext is not MainViewModel vm)
-        {
-            return;
-        }
-
-        if (sender is not FrameworkElement element || element.DataContext is not BroadcastViewModel broadcast)
-        {
-            return;
-        }
-
-        if (vm.BroadcastPttUpCommand.CanExecute(broadcast))
-        {
-            vm.BroadcastPttUpCommand.Execute(broadcast);
-        }
-    }
 }
-

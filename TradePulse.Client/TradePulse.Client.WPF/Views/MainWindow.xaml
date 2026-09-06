@@ -277,7 +277,10 @@
                      Padding="24">
             <Grid>
             <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="440"/>
+                    <!-- Proportional instead of a fixed 440px so the contacts
+                         panel scales with window/monitor size, clamped to a
+                         usable range rather than staying pinned. -->
+                    <ColumnDefinition Width="0.32*" MinWidth="360" MaxWidth="520"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 

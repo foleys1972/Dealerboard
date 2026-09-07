@@ -57,7 +57,7 @@ federation_domain_whitelist:
   - "trading-intercom-3.local"
 
 # Registration
-registration_shared_secret: "REDACTED_ROTATED_SECRET"
+registration_shared_secret: "CHANGE_ME_generate_with_openssl_rand_hex_32"
 
 # App service
 app_service_config_files:

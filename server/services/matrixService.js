@@ -23,7 +23,7 @@ class MatrixService {
       enabled: process.env.MATRIX_ENABLED === 'true',
       homeserverUrl: process.env.MATRIX_HOMESERVER_URL || 'http://localhost:8008',
       appserviceUrl: process.env.MATRIX_APPSERVICE_URL || 'http://localhost:9000',
-      appserviceToken: process.env.MATRIX_APPSERVICE_TOKEN || 'REDACTED_ROTATED_SECRET',
+      appserviceToken: process.env.MATRIX_APPSERVICE_TOKEN || 'dev-appservice-token-placeholder',
       appserviceId: process.env.MATRIX_APPSERVICE_ID || 'trading-intercom',
     };
   }

@@ -785,7 +785,11 @@ const UserManagement = () => {
                       <Muted>{user.email || user.username || id}</Muted>
                     </UsersTd>
                     <UsersTd>
-                      <Badge variant={user.role === 'admin' ? 'error' : user.role === 'trader' ? 'warning' : 'info'}>
+                      <Badge variant={
+                        user.role === 'platform_admin' ? 'error'
+                          : user.role === 'tenant_admin' ? 'warning'
+                          : 'info'
+                      }>
                         {user.role || 'user'}
                       </Badge>
                     </UsersTd>
@@ -794,7 +798,7 @@ const UserManagement = () => {
                         <Badge variant={user.isActive !== false ? 'success' : 'secondary'}>
                           {user.isActive !== false ? 'Active' : 'Inactive'}
                         </Badge>
-                        <Badge variant={isOnline ? 'success' : 'secondary'} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <Badge variant={isOnline ? 'success' : 'secondary'} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                           <FiRadio style={{ fontSize: '12px' }} />
                           {isOnline ? 'Online' : 'Offline'}
                         </Badge>

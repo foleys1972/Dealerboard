@@ -507,8 +507,8 @@ export const Badge = styled.span`
   text-transform: uppercase;
   letter-spacing: 0.5px;
 
-  ${({ $variant, theme }) => {
-    switch ($variant) {
+  ${({ variant, theme }) => {
+    switch (variant) {
       case 'success':
         return `
           background: ${theme.colors.success};

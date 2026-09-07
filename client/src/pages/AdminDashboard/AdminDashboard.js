@@ -61,7 +61,10 @@ const AdminDashboard = () => {
     try {
       const response = await api.get('/api/admin/stats');
       if (response.data?.success) {
-        setStats(response.data.stats || {});
+        // Merge rather than replace: fields the API doesn't return (e.g. iptvStreams
+        // isn't always computed server-side) should keep their sensible default (0)
+        // instead of becoming undefined and rendering as blank.
+        setStats((prev) => ({ ...prev, ...(response.data.stats || {}) }));
         setRecentActivity(response.data.recentActivity || []);
         if (Array.isArray(response.data.groups)) setGroupsMeta(response.data.groups);
         if (Array.isArray(response.data.broadcasts)) setBroadcastsMeta(response.data.broadcasts);
@@ -368,7 +371,8 @@ const AdminDashboard = () => {
                       ))
                     ) : (
                       <EmptyActivity>
-                        No recent activity
+                        <FiActivity />
+                        <span>No recent activity yet — actions like calls, group changes, and user updates will appear here.</span>
                       </EmptyActivity>
                     )}
                   </ActivityList>
@@ -646,8 +650,8 @@ const StatCard = styled.div`
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow: ${props => props.theme.shadows.md};
-  border-left: 4px solid ${props => props.color};
   border: 1px solid ${props => props.theme.colors.border};
+  border-left: 4px solid ${props => props.color};
 `;
 
 const StatIcon = styled.div`
@@ -757,10 +761,18 @@ const ActivityTime = styled.div`
 `;
 
 const EmptyActivity = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
   text-align: center;
-  padding: 2rem;
+  padding: 1.5rem;
   color: ${props => props.theme.colors.textTertiary};
-  font-style: italic;
+
+  svg {
+    font-size: 1.5rem;
+    opacity: 0.6;
+  }
 `;
 
 const TabContent = styled.div`

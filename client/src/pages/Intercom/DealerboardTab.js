@@ -159,32 +159,33 @@ const StatusLegend = styled.div`
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.5rem 0.75rem;
-  padding: 0.2rem 0.5rem;
+  gap: 0.6rem 1rem;
+  padding: 0.35rem 0.65rem;
   background: ${(props) => props.theme.colors.surface};
   border: 1px solid ${(props) => props.theme.colors.border};
   border-radius: ${(props) => props.theme.borderRadius.sm};
-  font-size: 0.58rem;
-  font-weight: 600;
+  font-size: 0.72rem;
+  font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: ${(props) => props.theme.colors.textSecondary};
+  color: ${(props) => props.theme.colors.text};
   flex-shrink: 0;
 `;
 
 const LegendItem = styled.span`
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
 `;
 
 const LegendSwatch = styled.span`
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
   background: ${(props) => props.$color};
-  border: 1px solid ${(props) => props.$border || props.$color};
+  border: 1.5px solid ${(props) => props.$border || props.$color};
   box-shadow: ${(props) => (props.$glow ? `0 0 6px ${props.$glow}` : 'none')};
+  flex-shrink: 0;
 `;
 
 const StatusBar = styled.div`
@@ -1373,10 +1374,12 @@ const DealerboardTab = ({ currentPage: propCurrentPage, onPageChange }) => {
             {allRingingTargets.length} INCOMING
           </StatusChip>
         )}
-        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.65rem', flexWrap: 'wrap' }}>
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.75rem', flexWrap: 'wrap' }}>
           <LegendItem><LegendSwatch $color="#151520" $border="#2a2a3a" /> Idle</LegendItem>
           <LegendItem><LegendSwatch $color="#dc2626" $border="#ef4444" /> Ring</LegendItem>
           <LegendItem><LegendSwatch $color="#166534" $border="#22c55e" /> Private</LegendItem>
+          <LegendItem><LegendSwatch $color="#7f1d1d" $border="#ef4444" /> Busy</LegendItem>
+          <LegendItem><LegendSwatch $color="#374151" $border="#6b7280" /> No SBC</LegendItem>
           <LegendItem><LegendSwatch $color="#1e3a5f" $border="#f59e0b" /> MON</LegendItem>
           <LegendItem><LegendSwatch $color="#1e3a8a" $border="#3b82f6" /> SPK</LegendItem>
         </span>

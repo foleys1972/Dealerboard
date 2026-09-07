@@ -104,7 +104,18 @@ function App() {
             <Route path="*" element={isAuthenticated ? <NotFound /> : <Login />} />
           </Routes>
         </Router>
-        <Toaster position="top-right" />
+        <Toaster
+          position="top-right"
+          containerStyle={{ top: 76 }}
+          toastOptions={{
+            style: {
+              background: theme.colors.surfaceElevated,
+              color: theme.colors.text,
+              border: `1px solid ${theme.colors.border}`,
+              boxShadow: theme.shadows.lg,
+            },
+          }}
+        />
       </ThemeProvider>
     </QueryClientProvider>
   );

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled, { ThemeProvider } from 'styled-components';
-import { 
-  FiUsers, 
-  FiPhone, 
+import {
+  FiUsers,
+  FiPhone,
   FiVideo,
   FiRadio,
   FiLogOut,
@@ -12,7 +12,12 @@ import {
   FiActivity,
   FiMessageSquare,
   FiLink,
-  FiGlobe
+  FiGlobe,
+  FiHeart,
+  FiUserCheck,
+  FiGrid,
+  FiHash,
+  FiSettings
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -181,132 +186,136 @@ const AdminDashboard = () => {
 
         <MainContent>
           <Sidebar>
-            {/* Health Check - visible to all authenticated users - MUST BE FIRST */}
-            <NavItem 
-              key="health-check-nav"
-              $active={activeTab === 'healthCheck'}
-              onClick={() => setActiveTab('healthCheck')}
-              style={{ backgroundColor: activeTab === 'healthCheck' ? 'rgba(6, 182, 212, 0.1)' : 'transparent' }}
-            >
-              <FiServer />
-              <span>Health Check</span>
-            </NavItem>
-            
-            {/* Admin-only tabs */}
-            {isAdmin && (
-              <>
-                <NavItem 
+            <SidebarSection>
+              <SidebarSectionTitle>Overview</SidebarSectionTitle>
+              {/* Health Check - visible to all authenticated users */}
+              <NavItem
+                key="health-check-nav"
+                $active={activeTab === 'healthCheck'}
+                onClick={() => setActiveTab('healthCheck')}
+              >
+                <FiHeart />
+                <span>Health Check</span>
+              </NavItem>
+              {isAdmin && (
+                <NavItem
                   $active={activeTab === 'overview'}
                   onClick={() => setActiveTab('overview')}
                 >
                   <FiActivity />
                   <span>Overview</span>
                 </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'users'}
-                  onClick={() => setActiveTab('users')}
-                >
-                  <FiUsers />
-                  <span>Users</span>
-                </NavItem>
-            
-                <NavItem 
-                  $active={activeTab === 'groups'}
-                  onClick={() => setActiveTab('groups')}
-                >
-                  <FiPhone />
-                  <span>Groups</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'broadcasts'}
-                  onClick={() => setActiveTab('broadcasts')}
-                >
-                  <FiRadio />
-                  <span>Broadcasts</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'iptv'}
-                  onClick={() => setActiveTab('iptv')}
-                >
-                  <FiVideo />
-                  <span>IPTV Streams</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'recordings'}
-                  onClick={() => setActiveTab('recordings')}
-                >
-                  <FiDatabase />
-                  <span>Recordings</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'matrix'}
-                  onClick={() => setActiveTab('matrix')}
-                >
-                  <FiMessageSquare />
-                  <span>Matrix</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'matrixRooms'}
-                  onClick={() => setActiveTab('matrixRooms')}
-                >
-                  <FiMessageSquare />
-                  <span>Matrix Rooms</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'privateWires'}
-                  onClick={() => setActiveTab('privateWires')}
-                >
-                  <FiLink />
-                  <span>Private Wires</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'telephone'}
-                  onClick={() => setActiveTab('telephone')}
-                >
-                  <FiPhone />
-                  <span>Telephone</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'dealerboardGroups'}
-                  onClick={() => setActiveTab('dealerboardGroups')}
-                >
-                  <FiUsers />
-                  <span>Dealerboard Groups</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'matrixHomeservers'}
-                  onClick={() => setActiveTab('matrixHomeservers')}
-                >
-                  <FiServer />
-                  <span>Matrix Homeservers</span>
-                </NavItem>
-                
-                <NavItem 
-                  $active={activeTab === 'system'}
-                  onClick={() => setActiveTab('system')}
-                >
-                  <FiServer />
-                  <span>System</span>
-                </NavItem>
+              )}
+            </SidebarSection>
 
-                <NavItem 
-                  $active={false}
-                  onClick={() => navigate('/federation')}
-                >
-                  <FiGlobe />
-                  <span>Federation Portal</span>
-                </NavItem>
+            {isAdmin && (
+              <>
+                <SidebarSection>
+                  <SidebarSectionTitle>People &amp; Groups</SidebarSectionTitle>
+                  <NavItem
+                    $active={activeTab === 'users'}
+                    onClick={() => setActiveTab('users')}
+                  >
+                    <FiUsers />
+                    <span>Users</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'groups'}
+                    onClick={() => setActiveTab('groups')}
+                  >
+                    <FiUserCheck />
+                    <span>Groups</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'dealerboardGroups'}
+                    onClick={() => setActiveTab('dealerboardGroups')}
+                  >
+                    <FiGrid />
+                    <span>Dealerboard Groups</span>
+                  </NavItem>
+                </SidebarSection>
 
+                <SidebarSection>
+                  <SidebarSectionTitle>Media &amp; Calling</SidebarSectionTitle>
+                  <NavItem
+                    $active={activeTab === 'broadcasts'}
+                    onClick={() => setActiveTab('broadcasts')}
+                  >
+                    <FiRadio />
+                    <span>Broadcasts</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'iptv'}
+                    onClick={() => setActiveTab('iptv')}
+                  >
+                    <FiVideo />
+                    <span>IPTV Streams</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'recordings'}
+                    onClick={() => setActiveTab('recordings')}
+                  >
+                    <FiDatabase />
+                    <span>Recordings</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'privateWires'}
+                    onClick={() => setActiveTab('privateWires')}
+                  >
+                    <FiLink />
+                    <span>Private Wires</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'telephone'}
+                    onClick={() => setActiveTab('telephone')}
+                  >
+                    <FiPhone />
+                    <span>Telephone</span>
+                  </NavItem>
+                </SidebarSection>
+
+                <SidebarSection>
+                  <SidebarSectionTitle>Matrix &amp; Federation</SidebarSectionTitle>
+                  <NavItem
+                    $active={activeTab === 'matrix'}
+                    onClick={() => setActiveTab('matrix')}
+                  >
+                    <FiMessageSquare />
+                    <span>Matrix</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'matrixRooms'}
+                    onClick={() => setActiveTab('matrixRooms')}
+                  >
+                    <FiHash />
+                    <span>Matrix Rooms</span>
+                  </NavItem>
+                  <NavItem
+                    $active={activeTab === 'matrixHomeservers'}
+                    onClick={() => setActiveTab('matrixHomeservers')}
+                  >
+                    <FiServer />
+                    <span>Matrix Homeservers</span>
+                  </NavItem>
+                  <NavItem
+                    $active={false}
+                    onClick={() => navigate('/federation')}
+                  >
+                    <FiGlobe />
+                    <span>Federation Portal</span>
+                  </NavItem>
+                </SidebarSection>
+
+                <SidebarSection>
+                  <SidebarSectionTitle>System</SidebarSectionTitle>
+                  <NavItem
+                    $active={activeTab === 'system'}
+                    onClick={() => setActiveTab('system')}
+                  >
+                    <FiSettings />
+                    <span>System</span>
+                  </NavItem>
+                </SidebarSection>
               </>
             )}
           </Sidebar>
@@ -592,33 +601,65 @@ const MainContent = styled.main`
 `;
 
 const Sidebar = styled.aside`
-  width: 250px;
+  width: 260px;
   background: ${props => props.theme.colors.surface};
   border-right: 1px solid ${props => props.theme.colors.border};
-  padding: 1.5rem 0;
+  padding: 1.25rem 0.75rem;
   overflow-y: auto;
   overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+`;
+
+const SidebarSection = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+`;
+
+const SidebarSectionTitle = styled.div`
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: ${props => props.theme.colors.textTertiary};
+  padding: 0 0.75rem;
+  margin-bottom: 0.4rem;
 `;
 
 const NavItem = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
-  color: ${props => props.$active ? props.theme.colors.accent : props.theme.colors.textSecondary};
-  background: ${props => props.$active ? 'rgba(6, 182, 212, 0.1)' : 'transparent'};
-  border-left: 4px solid ${props => props.$active ? props.theme.colors.accent : 'transparent'};
+  gap: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: ${props => props.theme.borderRadius.md};
+  color: ${props => props.$active ? '#ffffff' : props.theme.colors.textSecondary};
+  background: ${props => props.$active ? props.theme.colors.gradient : 'transparent'};
+  box-shadow: ${props => props.$active ? props.theme.shadows.glow : 'none'};
   cursor: pointer;
-  transition: all 0.2s;
-  font-weight: ${props => props.$active ? '600' : '400'};
+  transition: background 0.15s, color 0.15s, transform 0.1s;
+  font-weight: ${props => props.$active ? '600' : '500'};
+  font-size: 0.9rem;
 
   &:hover {
-    background: ${props => props.theme.colors.surfaceElevated};
-    color: ${props => props.theme.colors.accent};
+    background: ${props => props.$active ? props.theme.colors.gradient : props.theme.colors.surfaceElevated};
+    color: ${props => props.$active ? '#ffffff' : props.theme.colors.text};
+  }
+
+  &:active {
+    transform: scale(0.98);
   }
 
   svg {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 `;
 

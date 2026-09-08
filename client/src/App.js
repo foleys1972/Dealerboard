@@ -112,7 +112,10 @@ function App() {
               background: theme.colors.surfaceElevated,
               color: theme.colors.text,
               border: `1px solid ${theme.colors.border}`,
-              boxShadow: theme.shadows.lg,
+              borderRadius: 0,
+              boxShadow: 'none',
+              fontSize: '0.82rem',
+              fontFamily: theme.fonts.mono,
             },
           }}
         />

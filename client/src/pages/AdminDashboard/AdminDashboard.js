@@ -343,43 +343,28 @@ const AdminDashboard = () => {
                   </LiveIndicator>
                 </PageHeading>
 
-                <StatsGrid>
-                  <StatCard $color={theme.colors.accent}>
-                    <StatCardTop>
-                      <StatIconBadge $color={theme.colors.accent}><FiUsers /></StatIconBadge>
-                    </StatCardTop>
-                    <StatValue>{stats.totalUsers}</StatValue>
-                    <StatLabel>Total Users</StatLabel>
-                    <StatSubtext>{stats.activeUsers} active now</StatSubtext>
-                  </StatCard>
-
-                  <StatCard $color={theme.colors.success}>
-                    <StatCardTop>
-                      <StatIconBadge $color={theme.colors.success}><FiPhone /></StatIconBadge>
-                    </StatCardTop>
-                    <StatValue>{stats.activeCalls}</StatValue>
-                    <StatLabel>Active Calls</StatLabel>
-                    <StatSubtext>Real-time</StatSubtext>
-                  </StatCard>
-
-                  <StatCard $color={theme.colors.warning}>
-                    <StatCardTop>
-                      <StatIconBadge $color={theme.colors.warning}><FiRadio /></StatIconBadge>
-                    </StatCardTop>
-                    <StatValue>{stats.broadcasts}</StatValue>
-                    <StatLabel>Active Broadcasts</StatLabel>
-                    <StatSubtext>{stats.totalGroups} total groups</StatSubtext>
-                  </StatCard>
-
-                  <StatCard $color={theme.colors.info}>
-                    <StatCardTop>
-                      <StatIconBadge $color={theme.colors.info}><FiVideo /></StatIconBadge>
-                    </StatCardTop>
-                    <StatValue>{stats.iptvStreams}</StatValue>
-                    <StatLabel>IPTV Streams</StatLabel>
-                    <StatSubtext>Multicast active</StatSubtext>
-                  </StatCard>
-                </StatsGrid>
+                <StatStrip>
+                  <StatSegment>
+                    <StatSegmentLabel><FiUsers /> Total Users</StatSegmentLabel>
+                    <StatSegmentValue $color={theme.colors.accent}>{String(stats.totalUsers).padStart(2, '0')}</StatSegmentValue>
+                    <StatSegmentMeta>{stats.activeUsers} active now</StatSegmentMeta>
+                  </StatSegment>
+                  <StatSegment>
+                    <StatSegmentLabel><FiPhone /> Active Calls</StatSegmentLabel>
+                    <StatSegmentValue $color={theme.colors.success}>{String(stats.activeCalls).padStart(2, '0')}</StatSegmentValue>
+                    <StatSegmentMeta>real-time</StatSegmentMeta>
+                  </StatSegment>
+                  <StatSegment>
+                    <StatSegmentLabel><FiRadio /> Broadcasts</StatSegmentLabel>
+                    <StatSegmentValue $color={theme.colors.warning}>{String(stats.broadcasts).padStart(2, '0')}</StatSegmentValue>
+                    <StatSegmentMeta>{stats.totalGroups} total groups</StatSegmentMeta>
+                  </StatSegment>
+                  <StatSegment>
+                    <StatSegmentLabel><FiVideo /> IPTV Streams</StatSegmentLabel>
+                    <StatSegmentValue $color={theme.colors.info}>{String(stats.iptvStreams).padStart(2, '0')}</StatSegmentValue>
+                    <StatSegmentMeta>multicast active</StatSegmentMeta>
+                  </StatSegment>
+                </StatStrip>
 
                 <Section style={{ marginTop: '1.25rem' }}>
                   <SectionTitle><FiClock /> Recent Activity</SectionTitle>
@@ -619,59 +604,54 @@ const MainContent = styled.main`
 `;
 
 const Sidebar = styled.aside`
-  width: 260px;
+  width: 220px;
   background: ${props => props.theme.colors.surface};
   border-right: 1px solid ${props => props.theme.colors.border};
-  padding: 1.25rem 0.75rem;
+  padding: 1rem 0;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: 0.9rem;
 `;
 
 const SidebarSection = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
 `;
 
 const SidebarSectionTitle = styled.div`
-  font-size: 0.68rem;
+  font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   color: ${props => props.theme.colors.textTertiary};
-  padding: 0 0.75rem;
-  margin-bottom: 0.4rem;
+  padding: 0 1rem;
+  margin-bottom: 0.3rem;
 `;
 
 const NavItem = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: ${props => props.theme.borderRadius.md};
-  color: ${props => props.$active ? '#ffffff' : props.theme.colors.textSecondary};
-  background: ${props => props.$active ? props.theme.colors.gradient : 'transparent'};
-  box-shadow: ${props => props.$active ? props.theme.shadows.glow : 'none'};
+  gap: 0.65rem;
+  padding: 0.4rem 1rem;
+  border-left: 2px solid ${props => props.$active ? props.theme.colors.accent : 'transparent'};
+  color: ${props => props.$active ? props.theme.colors.text : props.theme.colors.textSecondary};
+  background: ${props => props.$active ? props.theme.colors.surfaceElevated : 'transparent'};
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, transform 0.1s;
-  font-weight: ${props => props.$active ? '600' : '500'};
-  font-size: 0.9rem;
+  transition: background 0.1s, color 0.1s;
+  font-weight: ${props => props.$active ? '600' : '400'};
+  font-size: 0.82rem;
 
   &:hover {
-    background: ${props => props.$active ? props.theme.colors.gradient : props.theme.colors.surfaceElevated};
-    color: ${props => props.$active ? '#ffffff' : props.theme.colors.text};
-  }
-
-  &:active {
-    transform: scale(0.98);
+    background: ${props => props.theme.colors.surfaceElevated};
+    color: ${props => props.theme.colors.text};
   }
 
   svg {
-    font-size: 1.1rem;
+    font-size: 0.95rem;
     flex-shrink: 0;
+    color: ${props => props.$active ? props.theme.colors.accent : 'currentColor'};
   }
 
   span {
@@ -683,12 +663,9 @@ const NavItem = styled.div`
 
 const Content = styled.div`
   flex: 1;
-  padding: 2rem 2.5rem;
+  padding: 1.5rem 2rem;
   overflow-y: auto;
-  background:
-    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(6, 182, 212, 0.08), transparent 60%),
-    radial-gradient(ellipse 700px 500px at 100% 0%, rgba(16, 185, 129, 0.06), transparent 55%),
-    ${props => props.theme.colors.background};
+  background: ${props => props.theme.colors.background};
 `;
 
 const OverviewTab = styled.div``;
@@ -698,108 +675,105 @@ const PageHeading = styled.div`
   align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1.75rem;
+  padding-bottom: 0.85rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid ${props => props.theme.colors.border};
 `;
 
 const PageTitle = styled.h1`
-  font-size: 2rem;
+  font-size: 1.3rem;
   color: ${props => props.theme.colors.text};
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
 `;
 
 const PageSubtitle = styled.p`
-  font-size: 0.9rem;
-  color: ${props => props.theme.colors.textSecondary};
-  margin-top: 0.35rem;
-  font-weight: 400;
-`;
-
-const StatsGrid = styled.div`
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 3rem;
+  font-size: 0.78rem;
+  color: ${props => props.theme.colors.textTertiary};
+  margin-top: 0.25rem;
+  font-family: ${props => props.theme.fonts.mono};
 `;
 
 const LiveIndicator = styled.div`
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.85rem;
-  border-radius: ${props => props.theme.borderRadius.xl};
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  gap: 0.45rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid ${props => props.theme.colors.success};
   color: ${props => props.theme.colors.success};
-  font-size: 0.75rem;
+  font-family: ${props => props.theme.fonts.mono};
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   flex-shrink: 0;
 `;
 
 const pulseKeyframes = `
   @keyframes livePulse {
-    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
-    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
   }
 `;
 
 const LivePulse = styled.span`
   ${pulseKeyframes}
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  width: 6px;
+  height: 6px;
   background: ${props => props.theme.colors.success};
-  animation: livePulse 2s infinite;
+  animation: livePulse 1.2s step-end infinite;
 `;
 
-const StatCard = styled.div`
-  position: relative;
-  background: ${props => props.theme.colors.surface};
-  border-radius: 16px;
-  padding: 1.5rem;
-  box-shadow: ${props => props.theme.shadows.md};
-  border: 1px solid ${props => props.theme.colors.border};
-  overflow: hidden;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-
-  &::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: ${props => props.$color};
-  }
-
-  &:hover {
-    transform: translateY(-3px);
-    box-shadow: ${props => props.theme.shadows.lg};
-    border-color: ${props => props.$color};
-  }
-`;
-
-const StatCardTop = styled.div`
+const StatStrip = styled.div`
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 1rem;
+  border: 1px solid ${props => props.theme.colors.border};
+  background: ${props => props.theme.colors.surface};
+  margin-bottom: 1.25rem;
+  overflow-x: auto;
 `;
 
-const StatIconBadge = styled.div`
-  width: 44px;
-  height: 44px;
-  border-radius: ${props => props.theme.borderRadius.md};
+const StatSegment = styled.div`
+  flex: 1;
+  min-width: 160px;
+  padding: 0.75rem 1.1rem;
+  border-right: 1px solid ${props => props.theme.colors.border};
+
+  &:last-child {
+    border-right: none;
+  }
+`;
+
+const StatSegmentLabel = styled.div`
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 1.3rem;
-  color: ${props => props.$color};
-  background: ${props => props.$color}1f;
-  border: 1px solid ${props => props.$color}40;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  color: ${props => props.theme.colors.textTertiary};
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.4rem;
+
+  svg {
+    font-size: 0.8rem;
+  }
+`;
+
+const StatSegmentValue = styled.div`
+  font-family: ${props => props.theme.fonts.mono};
+  font-size: 1.9rem;
+  font-weight: 700;
+  color: ${props => props.$color || props.theme.colors.text};
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+`;
+
+const StatSegmentMeta = styled.div`
+  font-size: 0.72rem;
+  color: ${props => props.theme.colors.textSecondary};
+  margin-top: 0.35rem;
+  font-family: ${props => props.theme.fonts.mono};
 `;
 
 const StatValue = styled.div`
@@ -827,42 +801,47 @@ const StatSubtext = styled.div`
 
 const Section = styled.section`
   background: ${props => props.theme.colors.surface};
-  border-radius: 16px;
-  padding: 1.5rem;
-  box-shadow: ${props => props.theme.shadows.md};
+  padding: 1.1rem 1.25rem;
   border: 1px solid ${props => props.theme.colors.border};
 `;
 
 const SectionTitle = styled.h2`
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 1.1rem;
-  color: ${props => props.theme.colors.text};
-  margin-bottom: 1.5rem;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: ${props => props.theme.colors.textSecondary};
+  margin-bottom: 0.9rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 
   svg {
     color: ${props => props.theme.colors.accent};
-    font-size: 1.1rem;
+    font-size: 0.9rem;
   }
 `;
 
 const MetaTable = styled.table`
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   thead th {
     text-align: left;
-    color: ${props => props.theme.colors.textSecondary};
-    font-weight: 600;
-    padding: 8px 12px;
+    color: ${props => props.theme.colors.textTertiary};
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.68rem;
+    padding: 6px 10px;
     border-bottom: 1px solid ${props => props.theme.colors.border};
   }
   tbody td {
-    padding: 10px 12px;
+    padding: 7px 10px;
     border-bottom: 1px solid ${props => props.theme.colors.border};
     color: ${props => props.theme.colors.text};
+    font-family: ${props => props.theme.fonts.mono};
+    font-size: 0.78rem;
   }
   tbody tr:hover {
     background: ${props => props.theme.colors.surfaceElevated};
@@ -872,58 +851,62 @@ const MetaTable = styled.table`
 const ActivityList = styled.div`
   display: flex;
   flex-direction: column;
-  gap: 1rem;
 `;
 
 const ActivityItem = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  background: ${props => props.theme.colors.surfaceElevated};
-  border-radius: 12px;
-  border: 1px solid ${props => props.theme.colors.border};
+  gap: 0.75rem;
+  padding: 0.55rem 0.25rem;
+  border-bottom: 1px solid ${props => props.theme.colors.border};
+  border-left: 2px solid ${props => props.color};
+
+  &:last-child {
+    border-bottom: none;
+  }
 `;
 
 const ActivityIcon = styled.div`
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: ${props => props.color}15;
-  color: ${props => props.color};
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
+  font-size: 0.9rem;
+  color: ${props => props.color};
+  flex-shrink: 0;
+  margin-left: 0.5rem;
 `;
 
 const ActivityText = styled.div`
   flex: 1;
   color: ${props => props.theme.colors.text};
-  font-size: 0.875rem;
+  font-size: 0.82rem;
 
   strong {
-    font-weight: 600;
+    font-weight: 700;
   }
 `;
 
 const ActivityTime = styled.div`
   color: ${props => props.theme.colors.textTertiary};
-  font-size: 0.75rem;
+  font-size: 0.7rem;
+  font-family: ${props => props.theme.fonts.mono};
 `;
 
 const EmptyActivity = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   text-align: center;
-  padding: 1.5rem;
+  padding: 1.1rem;
   color: ${props => props.theme.colors.textTertiary};
+  font-size: 0.8rem;
 
   svg {
-    font-size: 1.5rem;
-    opacity: 0.6;
+    font-size: 1.2rem;
+    opacity: 0.5;
   }
 `;
 

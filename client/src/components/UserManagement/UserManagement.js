@@ -59,25 +59,35 @@ const UserManagementContainer = styled.div`
 
 const UserManagementHeader = styled.div`
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
-  margin-bottom: ${props => props.theme.spacing.lg};
+  padding-bottom: 0.85rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid ${props => props.theme.colors.border};
 `;
 
 const UserManagementTitle = styled.h1`
-  font-size: 2rem;
+  font-size: 1.3rem;
   font-weight: 700;
   color: ${props => props.theme.colors.text};
   margin: 0;
   display: flex;
   align-items: center;
-  gap: ${props => props.theme.spacing.sm};
+  gap: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+
+  svg {
+    color: ${props => props.theme.colors.accent};
+    font-size: 1.1rem;
+  }
 `;
 
 const UserManagementSubtitle = styled.p`
-  font-size: 0.85rem;
-  color: ${props => props.theme.colors.textSecondary};
-  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+  color: ${props => props.theme.colors.textTertiary};
+  margin: 0.25rem 0 0;
+  font-family: ${props => props.theme.fonts.mono};
 `;
 
 const UserManagementActions = styled.div`
@@ -116,22 +126,31 @@ const UserCard = styled(Card)`
 `;
 
 const UsersTableCard = styled(Card)`
-  padding: ${props => props.theme.spacing.md};
+  padding: 0;
   overflow: auto;
+  border-radius: 0;
+  box-shadow: none;
+
+  &:hover {
+    border-color: ${props => props.theme.colors.border};
+    box-shadow: none;
+  }
 `;
 
 const UsersTable = styled.table`
   width: 100%;
   border-collapse: collapse;
+  font-size: 0.82rem;
 `;
 
 const UsersTh = styled.th`
   text-align: left;
-  padding: ${props => props.theme.spacing.sm};
-  font-size: 0.75rem;
-  letter-spacing: 0.04em;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: ${props => props.theme.colors.textSecondary};
+  color: ${props => props.theme.colors.textTertiary};
   border-bottom: 1px solid ${props => props.theme.colors.border};
   white-space: nowrap;
 `;
@@ -148,7 +167,7 @@ const UsersTr = styled.tr.withConfig({
 `;
 
 const UsersTd = styled.td`
-  padding: ${props => props.theme.spacing.sm};
+  padding: 0.4rem 0.75rem;
   border-bottom: 1px solid ${props => props.theme.colors.border};
   vertical-align: middle;
 `;
@@ -192,16 +211,15 @@ function initialsFor(name) {
 const UserAvatar = styled.div`
   width: ${props => props.$size || 48}px;
   height: ${props => props.$size || 48}px;
-  border-radius: 50%;
   background: ${props => props.$gradient || props.theme.colors.accent};
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: ${props => (props.$size ? props.$size * 0.38 : 18)}px;
+  font-family: ${props => props.theme.fonts.mono};
+  font-size: ${props => (props.$size ? props.$size * 0.34 : 16)}px;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
 `;
 
 const UserCell = styled.div`

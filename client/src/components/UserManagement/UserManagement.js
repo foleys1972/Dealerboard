@@ -74,6 +74,12 @@ const UserManagementTitle = styled.h1`
   gap: ${props => props.theme.spacing.sm};
 `;
 
+const UserManagementSubtitle = styled.p`
+  font-size: 0.85rem;
+  color: ${props => props.theme.colors.textSecondary};
+  margin: 0.3rem 0 0;
+`;
+
 const UserManagementActions = styled.div`
   display: flex;
   gap: ${props => props.theme.spacing.sm};
@@ -159,18 +165,49 @@ const UserHeader = styled.div`
   margin-bottom: ${props => props.theme.spacing.md};
 `;
 
+const AVATAR_GRADIENTS = [
+  ['#06b6d4', '#3b82f6'],
+  ['#10b981', '#06b6d4'],
+  ['#f59e0b', '#ef4444'],
+  ['#8b5cf6', '#3b82f6'],
+  ['#ec4899', '#8b5cf6'],
+  ['#10b981', '#f59e0b'],
+];
+
+function avatarGradientFor(seed) {
+  const str = String(seed || '');
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+  const [from, to] = AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
+  return `linear-gradient(135deg, ${from}, ${to})`;
+}
+
+function initialsFor(name) {
+  const parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 const UserAvatar = styled.div`
-  width: 48px;
-  height: 48px;
+  width: ${props => props.$size || 48}px;
+  height: ${props => props.$size || 48}px;
   border-radius: 50%;
-  background: ${props => props.theme.colors.accent};
+  background: ${props => props.$gradient || props.theme.colors.accent};
   color: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  font-size: 1.25rem;
-  margin-right: ${props => props.theme.spacing.md};
+  font-weight: 700;
+  font-size: ${props => (props.$size ? props.$size * 0.38 : 18)}px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+`;
+
+const UserCell = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
 `;
 
 const UserInfo = styled.div`
@@ -280,6 +317,7 @@ const EmptySubtext = styled.div`
 `;
 
 const UserManagement = () => {
+  const theme = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState('all');
   const [filterSource, setFilterSource] = useState('all');
@@ -646,10 +684,15 @@ const UserManagement = () => {
   return (
     <UserManagementContainer>
       <UserManagementHeader>
-        <UserManagementTitle>
-          <FiUsers />
-          User Management
-        </UserManagementTitle>
+        <div>
+          <UserManagementTitle>
+            <FiUsers />
+            User Management
+          </UserManagementTitle>
+          <UserManagementSubtitle>
+            {filteredUsers.length} of {users?.length || 0} user{(users?.length || 0) === 1 ? '' : 's'}
+          </UserManagementSubtitle>
+        </div>
         <UserManagementActions>
           <Button variant="secondary" onClick={handleRefresh}>
             <FiRefreshCw />
@@ -664,10 +707,10 @@ const UserManagement = () => {
 
       {/* AD Status */}
       {adStatus?.isConnected && (
-        <Card style={{ padding: '1rem', marginBottom: '1rem', background: '#e8f5e8' }}>
+        <Card style={{ padding: '1rem', marginBottom: '1rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
           <Flex align="center" gap="0.5rem">
-            <FiDatabase style={{ color: '#28a745' }} />
-            <span style={{ fontWeight: '600', color: '#28a745' }}>
+            <FiDatabase style={{ color: theme.colors.success }} />
+            <span style={{ fontWeight: '600', color: theme.colors.success }}>
               Active Directory Connected
             </span>
             <Spacer />
@@ -781,8 +824,15 @@ const UserManagement = () => {
                     onClick={() => handleUserClick(user)}
                   >
                     <UsersTd>
-                      <div style={{ fontWeight: 600 }}>{displayName}</div>
-                      <Muted>{user.email || user.username || id}</Muted>
+                      <UserCell>
+                        <UserAvatar $size={36} $gradient={avatarGradientFor(id || displayName)}>
+                          {initialsFor(displayName)}
+                        </UserAvatar>
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{displayName}</div>
+                          <Muted>{user.email || user.username || id}</Muted>
+                        </div>
+                      </UserCell>
                     </UsersTd>
                     <UsersTd>
                       <Badge variant={

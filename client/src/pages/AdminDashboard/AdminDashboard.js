@@ -17,7 +17,8 @@ import {
   FiUserCheck,
   FiGrid,
   FiHash,
-  FiSettings
+  FiSettings,
+  FiClock
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -331,40 +332,57 @@ const AdminDashboard = () => {
             {/* Admin-only tabs */}
             {isAdmin && activeTab === 'overview' && (
               <OverviewTab>
-                <PageTitle>System Overview</PageTitle>
-                
+                <PageHeading>
+                  <div>
+                    <PageTitle>System Overview</PageTitle>
+                    <PageSubtitle>Live status across users, calls, broadcasts, and streams</PageSubtitle>
+                  </div>
+                  <LiveIndicator>
+                    <LivePulse />
+                    Live
+                  </LiveIndicator>
+                </PageHeading>
+
                 <StatsGrid>
-                  <StatCard color={theme.colors.accent}>
-                    <StatIcon><FiUsers /></StatIcon>
+                  <StatCard $color={theme.colors.accent}>
+                    <StatCardTop>
+                      <StatIconBadge $color={theme.colors.accent}><FiUsers /></StatIconBadge>
+                    </StatCardTop>
                     <StatValue>{stats.totalUsers}</StatValue>
                     <StatLabel>Total Users</StatLabel>
                     <StatSubtext>{stats.activeUsers} active now</StatSubtext>
                   </StatCard>
-                  
-                  <StatCard color={theme.colors.success}>
-                    <StatIcon><FiPhone /></StatIcon>
+
+                  <StatCard $color={theme.colors.success}>
+                    <StatCardTop>
+                      <StatIconBadge $color={theme.colors.success}><FiPhone /></StatIconBadge>
+                    </StatCardTop>
                     <StatValue>{stats.activeCalls}</StatValue>
                     <StatLabel>Active Calls</StatLabel>
                     <StatSubtext>Real-time</StatSubtext>
                   </StatCard>
-                  
-                  <StatCard color={theme.colors.warning}>
-                    <StatIcon><FiRadio /></StatIcon>
+
+                  <StatCard $color={theme.colors.warning}>
+                    <StatCardTop>
+                      <StatIconBadge $color={theme.colors.warning}><FiRadio /></StatIconBadge>
+                    </StatCardTop>
                     <StatValue>{stats.broadcasts}</StatValue>
                     <StatLabel>Active Broadcasts</StatLabel>
                     <StatSubtext>{stats.totalGroups} total groups</StatSubtext>
                   </StatCard>
-                  
-                  <StatCard color={theme.colors.info}>
-                    <StatIcon><FiVideo /></StatIcon>
+
+                  <StatCard $color={theme.colors.info}>
+                    <StatCardTop>
+                      <StatIconBadge $color={theme.colors.info}><FiVideo /></StatIconBadge>
+                    </StatCardTop>
                     <StatValue>{stats.iptvStreams}</StatValue>
                     <StatLabel>IPTV Streams</StatLabel>
                     <StatSubtext>Multicast active</StatSubtext>
                   </StatCard>
                 </StatsGrid>
 
-                <Section>
-                  <SectionTitle>Recent Activity</SectionTitle>
+                <Section style={{ marginTop: '1.25rem' }}>
+                  <SectionTitle><FiClock /> Recent Activity</SectionTitle>
                   <ActivityList>
                     {recentActivity.length > 0 ? (
                       recentActivity.map((activity, index) => (
@@ -389,7 +407,7 @@ const AdminDashboard = () => {
 
                 {!!groupsMeta?.length && (
                   <Section style={{ marginTop: '1rem' }}>
-                    <SectionTitle>Groups – Last Used</SectionTitle>
+                    <SectionTitle><FiUsers /> Groups – Last Used</SectionTitle>
                     <MetaTable>
                       <thead>
                         <tr>
@@ -413,7 +431,7 @@ const AdminDashboard = () => {
 
                 {!!broadcastsMeta?.length && (
                   <Section style={{ marginTop: '1rem' }}>
-                    <SectionTitle>Broadcasts – Last Spoken</SectionTitle>
+                    <SectionTitle><FiRadio /> Broadcasts – Last Spoken</SectionTitle>
                     <MetaTable>
                       <thead>
                         <tr>
@@ -665,18 +683,36 @@ const NavItem = styled.div`
 
 const Content = styled.div`
   flex: 1;
-  padding: 2rem;
+  padding: 2rem 2.5rem;
   overflow-y: auto;
-  background: ${props => props.theme.colors.background};
+  background:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(6, 182, 212, 0.08), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 100% 0%, rgba(16, 185, 129, 0.06), transparent 55%),
+    ${props => props.theme.colors.background};
 `;
 
 const OverviewTab = styled.div``;
 
+const PageHeading = styled.div`
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+`;
+
 const PageTitle = styled.h1`
   font-size: 2rem;
   color: ${props => props.theme.colors.text};
-  margin-bottom: 2rem;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+`;
+
+const PageSubtitle = styled.p`
+  font-size: 0.9rem;
+  color: ${props => props.theme.colors.textSecondary};
+  margin-top: 0.35rem;
+  font-weight: 400;
 `;
 
 const StatsGrid = styled.div`
@@ -686,40 +722,107 @@ const StatsGrid = styled.div`
   margin-bottom: 3rem;
 `;
 
+const LiveIndicator = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: ${props => props.theme.borderRadius.xl};
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: ${props => props.theme.colors.success};
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+`;
+
+const pulseKeyframes = `
+  @keyframes livePulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+`;
+
+const LivePulse = styled.span`
+  ${pulseKeyframes}
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: ${props => props.theme.colors.success};
+  animation: livePulse 2s infinite;
+`;
+
 const StatCard = styled.div`
+  position: relative;
   background: ${props => props.theme.colors.surface};
   border-radius: 16px;
   padding: 1.5rem;
   box-shadow: ${props => props.theme.shadows.md};
   border: 1px solid ${props => props.theme.colors.border};
-  border-left: 4px solid ${props => props.color};
+  overflow: hidden;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: ${props => props.$color};
+  }
+
+  &:hover {
+    transform: translateY(-3px);
+    box-shadow: ${props => props.theme.shadows.lg};
+    border-color: ${props => props.$color};
+  }
 `;
 
-const StatIcon = styled.div`
-  font-size: 2rem;
-  color: ${props => props.theme.colors.accent};
-  margin-bottom: 0.5rem;
+const StatCardTop = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+`;
+
+const StatIconBadge = styled.div`
+  width: 44px;
+  height: 44px;
+  border-radius: ${props => props.theme.borderRadius.md};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
+  color: ${props => props.$color};
+  background: ${props => props.$color}1f;
+  border: 1px solid ${props => props.$color}40;
 `;
 
 const StatValue = styled.div`
   font-size: 2.5rem;
-  font-weight: 700;
+  font-weight: 800;
   color: ${props => props.theme.colors.text};
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.35rem;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 `;
 
 const StatLabel = styled.div`
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: ${props => props.theme.colors.textSecondary};
-  font-weight: 500;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.06em;
 `;
 
 const StatSubtext = styled.div`
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: ${props => props.theme.colors.textTertiary};
-  margin-top: 0.25rem;
+  margin-top: 0.3rem;
 `;
 
 const Section = styled.section`
@@ -731,10 +834,18 @@ const Section = styled.section`
 `;
 
 const SectionTitle = styled.h2`
-  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.1rem;
   color: ${props => props.theme.colors.text};
   margin-bottom: 1.5rem;
-  font-weight: 600;
+  font-weight: 700;
+
+  svg {
+    color: ${props => props.theme.colors.accent};
+    font-size: 1.1rem;
+  }
 `;
 
 const MetaTable = styled.table`
